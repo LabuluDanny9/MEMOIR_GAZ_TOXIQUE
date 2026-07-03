@@ -1,0 +1,422 @@
+@startuml
+
+title Diagramme des Exigences SysML - Casque Intelligent GazMonitor Pro
+
+skinparam defaultFontName Arial
+skinparam defaultFontSize 10
+skinparam backgroundColor #0d1b2e
+skinparam class {
+  BackgroundColor #0f2a42
+  BorderColor #2563eb
+  FontColor #e2e8f0
+  HeaderBackgroundColor #1e3a5f
+  StereotypeFontColor #93c5fd
+  AttributeFontColor #cbd5e1
+}
+skinparam arrow {
+  Color #64b5f6
+  FontColor #94a3b8
+  FontSize 9
+}
+skinparam note {
+  BackgroundColor #1e3a5f
+  BorderColor #3b82f6
+  FontColor #93c5fd
+}
+
+' ===================================================
+'  EXIGENCE RACINE
+' ===================================================
+class "REQ-000 Casque GazMonitor Pro" <<requirement>> {
+  id       = "REQ-000"
+  text     = "Surveiller H2S et CO en continu,
+  localiser le porteur par GPS et
+  transmettre les donnees au serveur
+  central en milieu minier (RDC)."
+  priorite = Obligatoire
+  risque   = Critique
+}
+
+' ===================================================
+'  REQ-100 — DETECTION DES GAZ
+' ===================================================
+class "REQ-100 Detection des gaz toxiques" <<requirement>> {
+  id   = "REQ-100"
+  text = "Detecter H2S et CO en continu
+  avec periode d acquisition de 5s."
+}
+
+class "REQ-101 Detection H2S" <<requirement>> {
+  id      = "REQ-101"
+  text    = "Mesurer H2S entre 0 et 100 ppm."
+  capteur = "MQ-136  |  ADC GPIO34"
+  seuils  = "TWA:1 | STEL:5 | IDLH:50 ppm"
+  priorite = High
+}
+
+class "REQ-102 Detection CO" <<requirement>> {
+  id      = "REQ-102"
+  text    = "Mesurer CO entre 0 et 1000 ppm."
+  capteur = "MQ-7  |  ADC GPIO35"
+  seuils  = "TWA:25 | STEL:100 | IDLH:1200 ppm"
+  priorite = High
+}
+
+class "REQ-103 Precision de mesure" <<requirement>> {
+  id      = "REQ-103"
+  text    = "Erreur de mesure <= 5%."
+  priorite = Medium
+}
+
+' ===================================================
+'  REQ-200 — CONDITIONS AMBIANTES
+' ===================================================
+class "REQ-200 Conditions ambiantes" <<requirement>> {
+  id   = "REQ-200"
+  text = "Mesurer temperature et humidite
+  pour les calculs de toxicite."
+}
+
+class "REQ-201 Temperature" <<requirement>> {
+  id      = "REQ-201"
+  text    = "Mesurer T entre -40 et +80 degC,
+  precision +/- 0.5 degC."
+  capteur = "DHT22  |  GPIO4  |  1-Wire"
+}
+
+class "REQ-202 Humidite relative" <<requirement>> {
+  id      = "REQ-202"
+  text    = "Mesurer HR entre 0 et 100%,
+  precision +/- 2%."
+  capteur = "DHT22  |  GPIO4"
+}
+
+class "REQ-203 Meteo temps reel" <<requirement>> {
+  id      = "REQ-203"
+  text    = "Enrichir via Open-Meteo API.
+  Fallback si DHT22 indisponible."
+  source  = "Open-Meteo | cache 10 min"
+  priorite = Medium
+}
+
+' ===================================================
+'  REQ-300 — LOCALISATION GPS
+' ===================================================
+class "REQ-300 Localisation GPS" <<requirement>> {
+  id   = "REQ-300"
+  text = "Localiser le porteur en continu
+  avec precision suffisante."
+}
+
+class "REQ-301 Position geographique" <<requirement>> {
+  id       = "REQ-301"
+  text     = "Fournir latitude, longitude,
+  altitude et vitesse."
+  module   = "NEO-6M  |  UART2  |  9600 baud"
+  gpio     = "RX:GPIO16  |  TX:GPIO17"
+}
+
+class "REQ-302 Qualite du signal GPS" <<requirement>> {
+  id      = "REQ-302"
+  text    = "HDOP <= 2.0 et >= 6 satellites
+  pour un fix GPS valide."
+  priorite = High
+}
+
+class "REQ-303 Cartographie Lubumbashi" <<requirement>> {
+  id   = "REQ-303"
+  text = "Afficher position sur carte Leaflet
+  (OpenStreetMap) centree sur
+  Lubumbashi, Haut-Katanga, RDC."
+}
+
+' ===================================================
+'  REQ-400 — INTELLIGENCE ARTIFICIELLE
+' ===================================================
+class "REQ-400 Intelligence artificielle" <<requirement>> {
+  id   = "REQ-400"
+  text = "Classifier le danger et predire
+  l evolution des concentrations de gaz."
+}
+
+class "REQ-401 Classification Random Forest" <<requirement>> {
+  id      = "REQ-401"
+  text    = "Classifier chaque mesure en 4 niveaux:
+  Normal / Moyen / Dangereux / Critique."
+  modele  = "Random Forest  |  200 arbres  |  depth=15"
+  features = "20 variables physiques"
+}
+
+class "REQ-402 Prediction LSTM" <<requirement>> {
+  id       = "REQ-402"
+  text     = "Predire H2S et CO a 50s (10 pas x 5s)."
+  modele   = "BiLSTM 128->64->Dense"
+  lookback = "20 mesures (100s)"
+  priorite = Critical
+}
+
+class "REQ-403 Calculs physiques" <<requirement>> {
+  id   = "REQ-403"
+  text = "Calculer dose cumulee integ(C.dt),
+  derivee dC/dt, taux de croissance k
+  et indice de danger normalise."
+}
+
+' ===================================================
+'  REQ-500 — COMMUNICATION
+' ===================================================
+class "REQ-500 Communication reseau" <<requirement>> {
+  id   = "REQ-500"
+  text = "Transmettre les donnees au serveur
+  central en temps reel."
+}
+
+class "REQ-501 Protocole WiFi" <<requirement>> {
+  id      = "REQ-501"
+  text    = "Transmettre via WiFi 802.11 b/g/n."
+  format  = "JSON POST /api/sensor_data"
+  timeout = "<= 4s"
+}
+
+class "REQ-502 Frequence d acquisition" <<requirement>> {
+  id       = "REQ-502"
+  text     = "Envoyer une mesure toutes les 5s."
+  periode  = "5 secondes"
+  priorite = High
+}
+
+class "REQ-503 Resilience reseau" <<requirement>> {
+  id       = "REQ-503"
+  text     = "Stocker localement (SPIFFS) si perte
+  WiFi et reprendre a la reconnexion."
+  watchdog = "8 secondes"
+}
+
+' ===================================================
+'  REQ-600 — ALERTES
+' ===================================================
+class "REQ-600 Systeme d alertes" <<requirement>> {
+  id   = "REQ-600"
+  text = "Declencher alertes locales et distantes
+  lors de depassements de seuils."
+}
+
+class "REQ-601 Alertes seuil NIOSH/ACGIH" <<requirement>> {
+  id   = "REQ-601"
+  text = "Alerter lors du depassement des
+  seuils TWA, STEL et IDLH."
+  norme = "NIOSH / ACGIH"
+}
+
+class "REQ-602 Alertes predictives LSTM" <<requirement>> {
+  id       = "REQ-602"
+  text     = "Alerter si prediction LSTM indique
+  depassement dans les 50 prochaines s."
+  priorite = Critical
+}
+
+class "REQ-603 Alerte sonore" <<requirement>> {
+  id        = "REQ-603"
+  text      = "Emettre signal sonore evacuation."
+  composant = "Buzzer piezo >= 85dB + MAX98357A I2S"
+  gpio      = "GPIO25"
+}
+
+class "REQ-604 Alerte visuelle LED" <<requirement>> {
+  id        = "REQ-604"
+  text      = "Indiquer danger par bandeau LED RGB
+  (vert / orange / rouge) sur brim."
+  composant = "WS2812B x 6 LEDs"
+  gpio      = "GPIO26"
+}
+
+' ===================================================
+'  REQ-700 — ALIMENTATION
+' ===================================================
+class "REQ-700 Alimentation" <<requirement>> {
+  id   = "REQ-700"
+  text = "Alimenter tous les composants
+  de maniere autonome et rechargeable."
+}
+
+class "REQ-701 Batterie LiPo" <<requirement>> {
+  id        = "REQ-701"
+  text      = "LiPo 3.7V 5000 mAh avec protection."
+  composant = "TP4056 + DW01A + boost MT3608 5V"
+}
+
+class "REQ-702 Autonomie 8h" <<requirement>> {
+  id       = "REQ-702"
+  text     = "Autonomie >= 8h en fonctionnement
+  continu (acquisition toutes les 5s)."
+  priorite = High
+}
+
+class "REQ-703 Recharge USB-C" <<requirement>> {
+  id   = "REQ-703"
+  text = "Recharge via USB-C 5V/2A avec
+  indicateur LED d etat de charge."
+}
+
+' ===================================================
+'  REQ-800 — INTERFACE UTILISATEUR
+' ===================================================
+class "REQ-800 Interface utilisateur" <<requirement>> {
+  id   = "REQ-800"
+  text = "Presenter les donnees en temps reel
+  a l operateur et au superviseur."
+}
+
+class "REQ-801 Affichage local OLED" <<requirement>> {
+  id       = "REQ-801"
+  text     = "Afficher H2S, CO, T, HR, GPS,
+  WiFi RSSI et niveau danger sur OLED."
+  composant = "SSD1306 0.96 pouces"
+  protocole = "I2C  |  SDA:GPIO21  SCL:GPIO22"
+}
+
+class "REQ-802 Dashboard web" <<requirement>> {
+  id    = "REQ-802"
+  text  = "Dashboard temps reel accessible
+  via navigateur sur port 5000."
+  stack = "Flask + SocketIO + Chart.js + Leaflet"
+}
+
+class "REQ-803 Temps reel WebSocket" <<requirement>> {
+  id      = "REQ-803"
+  text    = "Diffuser chaque mesure analysee
+  en < 100ms via WebSocket."
+  delai   = "< 100 ms"
+}
+
+' ===================================================
+'  REQ-900 — CONFORMITE ET SECURITE
+' ===================================================
+class "REQ-900 Conformite et Securite" <<requirement>> {
+  id   = "REQ-900"
+  text = "Respecter les normes industrielles
+  et de protection individuelle."
+}
+
+class "REQ-901 Norme casque EN 397" <<requirement>> {
+  id       = "REQ-901"
+  text     = "Coque conforme EN 397 classe E (440V)."
+  materiau = "HDPE  |  orange RAL 2009"
+}
+
+class "REQ-902 Indice IP54" <<requirement>> {
+  id       = "REQ-902"
+  text     = "Electronique protegee contre
+  la poussiere et les projections d eau."
+  priorite = High
+}
+
+class "REQ-903 Seuils NIOSH integres" <<requirement>> {
+  id    = "REQ-903"
+  text  = "Seuils NIOSH/ACGIH codes en dur
+  dans la logique d alerte."
+  H2S   = "IDLH = 50 ppm"
+  CO    = "IDLH = 1200 ppm"
+}
+
+' ===================================================
+'  RELATIONS — COMPOSITION (containment)
+' ===================================================
+"REQ-000 Casque GazMonitor Pro"           *-- "REQ-100 Detection des gaz toxiques"
+"REQ-000 Casque GazMonitor Pro"           *-- "REQ-200 Conditions ambiantes"
+"REQ-000 Casque GazMonitor Pro"           *-- "REQ-300 Localisation GPS"
+"REQ-000 Casque GazMonitor Pro"           *-- "REQ-400 Intelligence artificielle"
+"REQ-000 Casque GazMonitor Pro"           *-- "REQ-500 Communication reseau"
+"REQ-000 Casque GazMonitor Pro"           *-- "REQ-600 Systeme d alertes"
+"REQ-000 Casque GazMonitor Pro"           *-- "REQ-700 Alimentation"
+"REQ-000 Casque GazMonitor Pro"           *-- "REQ-800 Interface utilisateur"
+"REQ-000 Casque GazMonitor Pro"           *-- "REQ-900 Conformite et Securite"
+
+"REQ-100 Detection des gaz toxiques"      *-- "REQ-101 Detection H2S"
+"REQ-100 Detection des gaz toxiques"      *-- "REQ-102 Detection CO"
+"REQ-100 Detection des gaz toxiques"      *-- "REQ-103 Precision de mesure"
+
+"REQ-200 Conditions ambiantes"            *-- "REQ-201 Temperature"
+"REQ-200 Conditions ambiantes"            *-- "REQ-202 Humidite relative"
+"REQ-200 Conditions ambiantes"            *-- "REQ-203 Meteo temps reel"
+
+"REQ-300 Localisation GPS"                *-- "REQ-301 Position geographique"
+"REQ-300 Localisation GPS"                *-- "REQ-302 Qualite du signal GPS"
+"REQ-300 Localisation GPS"                *-- "REQ-303 Cartographie Lubumbashi"
+
+"REQ-400 Intelligence artificielle"       *-- "REQ-401 Classification Random Forest"
+"REQ-400 Intelligence artificielle"       *-- "REQ-402 Prediction LSTM"
+"REQ-400 Intelligence artificielle"       *-- "REQ-403 Calculs physiques"
+
+"REQ-500 Communication reseau"            *-- "REQ-501 Protocole WiFi"
+"REQ-500 Communication reseau"            *-- "REQ-502 Frequence d acquisition"
+"REQ-500 Communication reseau"            *-- "REQ-503 Resilience reseau"
+
+"REQ-600 Systeme d alertes"               *-- "REQ-601 Alertes seuil NIOSH/ACGIH"
+"REQ-600 Systeme d alertes"               *-- "REQ-602 Alertes predictives LSTM"
+"REQ-600 Systeme d alertes"               *-- "REQ-603 Alerte sonore"
+"REQ-600 Systeme d alertes"               *-- "REQ-604 Alerte visuelle LED"
+
+"REQ-700 Alimentation"                    *-- "REQ-701 Batterie LiPo"
+"REQ-700 Alimentation"                    *-- "REQ-702 Autonomie 8h"
+"REQ-700 Alimentation"                    *-- "REQ-703 Recharge USB-C"
+
+"REQ-800 Interface utilisateur"           *-- "REQ-801 Affichage local OLED"
+"REQ-800 Interface utilisateur"           *-- "REQ-802 Dashboard web"
+"REQ-800 Interface utilisateur"           *-- "REQ-803 Temps reel WebSocket"
+
+"REQ-900 Conformite et Securite"          *-- "REQ-901 Norme casque EN 397"
+"REQ-900 Conformite et Securite"          *-- "REQ-902 Indice IP54"
+"REQ-900 Conformite et Securite"          *-- "REQ-903 Seuils NIOSH integres"
+
+' ===================================================
+'  RELATIONS — DERIVATION (deriveReqt)
+' ===================================================
+"REQ-101 Detection H2S"              ..> "REQ-401 Classification Random Forest" : <<deriveReqt>>
+"REQ-102 Detection CO"               ..> "REQ-401 Classification Random Forest" : <<deriveReqt>>
+"REQ-101 Detection H2S"              ..> "REQ-402 Prediction LSTM"              : <<deriveReqt>>
+"REQ-102 Detection CO"               ..> "REQ-402 Prediction LSTM"              : <<deriveReqt>>
+"REQ-401 Classification Random Forest" ..> "REQ-601 Alertes seuil NIOSH/ACGIH" : <<deriveReqt>>
+"REQ-402 Prediction LSTM"            ..> "REQ-602 Alertes predictives LSTM"     : <<deriveReqt>>
+"REQ-201 Temperature"                ..> "REQ-403 Calculs physiques"            : <<deriveReqt>>
+"REQ-202 Humidite relative"          ..> "REQ-403 Calculs physiques"            : <<deriveReqt>>
+"REQ-203 Meteo temps reel"           ..> "REQ-201 Temperature"                  : <<deriveReqt>>
+"REQ-203 Meteo temps reel"           ..> "REQ-202 Humidite relative"            : <<deriveReqt>>
+
+' ===================================================
+'  RELATIONS — RAFFINEMENT (refine)
+' ===================================================
+"REQ-403 Calculs physiques"          ..> "REQ-401 Classification Random Forest" : <<refine>>
+"REQ-302 Qualite du signal GPS"      ..> "REQ-301 Position geographique"        : <<refine>>
+"REQ-502 Frequence d acquisition"    ..> "REQ-501 Protocole WiFi"               : <<refine>>
+
+' ===================================================
+'  NOTES
+' ===================================================
+note bottom of "REQ-000 Casque GazMonitor Pro"
+  Contexte : Mines de cuivre - Gecamines
+  Lubumbashi, Haut-Katanga, RDC
+  MCU : ESP32-WROOM-32 (240 MHz, WiFi)
+  Serveur : Flask + SocketIO, port 5000
+  Normes : NIOSH / ACGIH
+end note
+
+note right of "REQ-402 Prediction LSTM"
+  Fenetre : 20 mesures (100s)
+  Horizon : 10 pas x 5s = 50s
+  Architecture : BiLSTM 128->64->Dense
+  Dataset : 3000 enregistrements
+end note
+
+note right of "REQ-601 Alertes seuil NIOSH/ACGIH"
+  H2S : Normal < 1 ppm
+        Moyen < 10 ppm
+        Dangereux < 50 ppm
+        Critique >= 50 ppm
+  CO  : Normal < 25 ppm
+        Moyen < 50 ppm
+        Dangereux < 200 ppm
+        Critique >= 200 ppm
+end note
+
+@enduml

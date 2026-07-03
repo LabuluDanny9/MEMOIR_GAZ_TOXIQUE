@@ -1,0 +1,39 @@
+flowchart TB
+    %% Organigramme de fonctionnement du firmware ESP32 - selon esp32_h2s_monitor.ino
+
+    A(["Demarrage ESP32"]) --> B["setup()<br/>Serial 115200<br/>GPIO LED RGB + buzzer<br/>ADC 12 bits<br/>DHT22"]
+    B --> C["Construire les URL HTTP<br/>sensor_data, heartbeat, command, health"]
+    C --> D["Configurer Wi-Fi STA<br/>WiFi.setSleep(false)<br/>AutoReconnect(true)"]
+    D --> E{"Wi-Fi connecte ?"}
+    E -- Oui --> F["LED verte<br/>Afficher IP/RSSI<br/>Tester serveur /api/health"]
+    E -- Non --> G["LED bleue<br/>La reconnexion sera geree dans loop()"]
+    F --> H["startedAt = millis()<br/>2 bips"]
+    G --> H
+
+    H --> L{{"loop() permanent"}}
+    L --> I{"ensureWiFi() OK ?"}
+    I -- Non --> J["LED bleue<br/>return<br/>reessai toutes les 3 s"] --> L
+    I -- Oui --> K{"esp32Enabled<br/>ET 5 s depuis dernier envoi ?"}
+    K -- Oui --> M["Lire capteurs<br/>DHT22: temperature/humidite<br/>MQ-136: moyenne 20 lectures ADC"]
+    M --> N["Calcul H2S ppm<br/>ADC -> Vout -> Rs/R0 -> ppm<br/>Correction T/H"]
+    N --> O["JSON mesure<br/>h2s_ppm, temperature, humidity<br/>device_id, zone, RSSI, IP"]
+    O --> P["POST /api/sensor_data"]
+    P --> Q{"HTTP 200/201/202 ?"}
+    Q -- Oui --> R["sendCount++<br/>failures=0<br/>LED verte"]
+    Q -- Non --> S["failures++<br/>LED bleue + bip"]
+    S --> T{"failures >= 3 ?"}
+    T -- Oui --> U["GET /api/health<br/>WiFi.disconnect(false)<br/>failures=0"]
+    T -- Non --> V["Continuer"]
+    U --> V
+    R --> V
+    K -- Non --> V
+
+    V --> HB{"5 s depuis dernier heartbeat ?"}
+    HB -- Oui --> HB1["POST /api/esp32/heartbeat<br/>uptime, RSSI, IP, enabled, send_count"] --> HB2["Lire enabled dans la reponse"]
+    HB -- Non --> HB2
+    HB2 --> CMD{"5 s depuis derniere commande ?"}
+    CMD -- Oui --> CMD1["GET /api/esp32/command<br/>device_id, RSSI, IP"] --> CMD2["Lire enabled dans la reponse"]
+    CMD -- Non --> CMD2
+    CMD2 --> X{"esp32Enabled = false ?"}
+    X -- Oui --> Y["LED bleue<br/>Mesures suspendues<br/>Heartbeat + commande continuent"] --> L
+    X -- Non --> Z["Fonctionnement normal"] --> L

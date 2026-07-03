@@ -1,0 +1,49 @@
+{
+  "dataset": "D:\\TFC_2026 (2)\\Mr. RUPHIN\\final\\CORRECTION\\MODELE\\DATASET01.csv",
+  "rows_after_cleaning": 654188,
+  "test_rows_rf": 98129,
+  "target_rule": "Y=0 si C_H2S_fusion<10 ppm; Y=1 si 10<=C_H2S_fusion<20 ppm; Y=2 si C_H2S_fusion>=20 ppm",
+  "rf": {
+    "accuracy": 0.9999898093326132,
+    "balanced_accuracy": 0.9999217159855958,
+    "precision_macro": 0.9998176513493799,
+    "recall_macro": 0.9999217159855958,
+    "f1_macro": 0.9998696541255621,
+    "f1_weighted": 0.9999898101282904,
+    "f1_per_class": {
+      "Normal": 1.0,
+      "Modere": 0.9998825601879037,
+      "Dangereux": 0.9997264021887825
+    },
+    "roc_auc_per_class": {
+      "Normal": 1.0,
+      "Modere": 0.9999999949962812,
+      "Dangereux": 1.0
+    }
+  },
+  "lstm": {
+    "r2": -22.359673660750524,
+    "mae_ppm": 25.95444286117043,
+    "rmse_ppm": 26.3496257042526,
+    "sequences": 767,
+    "source": "recalculated_from_lstm_h5_with_backend_clipping",
+    "train_min": 0.005,
+    "train_max": 31.440000000000005
+  },
+  "paths": {
+    "roc_png": "C:\\Users\\labul\\gas_monitoring_system\\gas_monitoring_system\\docs\\metriques_graphiques\\roc_curve_random_forest_h2s.png",
+    "f1_png": "C:\\Users\\labul\\gas_monitoring_system\\gas_monitoring_system\\docs\\metriques_graphiques\\f1_score_random_forest_h2s.png",
+    "r2_png": "C:\\Users\\labul\\gas_monitoring_system\\gas_monitoring_system\\docs\\metriques_graphiques\\r2_lstm_h2s_prediction.png",
+    "r2_bar_png": "C:\\Users\\labul\\gas_monitoring_system\\gas_monitoring_system\\docs\\metriques_graphiques\\r2_score_lstm_h2s.png",
+    "summary_png": "C:\\Users\\labul\\gas_monitoring_system\\gas_monitoring_system\\docs\\metriques_graphiques\\synthese_roc_f1_r2_modele_h2s.png",
+    "r2_official_metadata_png": "C:\\Users\\labul\\gas_monitoring_system\\gas_monitoring_system\\docs\\metriques_graphiques\\r2_score_lstm_h2s_officiel_metadata.png"
+  },
+  "note": "Le RF peut obtenir 1.00 car la cible est definie par des seuils directs sur la meme variable C_H2S_fusion_ppm.",
+  "lstm_official_metadata": {
+    "r2": 0.18585842847824097,
+    "mae_ppm": 2.2625532150268555,
+    "rmse_ppm": 4.934544898231359,
+    "sequences": 767,
+    "source": "metadata_h2s_fusion.json"
+  }
+}

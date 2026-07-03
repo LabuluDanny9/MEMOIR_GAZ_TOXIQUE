@@ -1,0 +1,13 @@
+[DB] Initialisee : C:\Users\labul\gas_monitoring_system\gas_monitoring_system\gas_monitoring.db
+
+[H2S] Chargement des modeles IA ...
+[H2S] RF   : random_forest_h2s_fusion | classes [np.int64(0), np.int64(1), np.int64(2)]
+[H2S] LSTM : lstm_h2s_fusion | fenetre 60 | horizon 50s
+[H2S] H2S normalise [0.005 - 31.440] ppm
+[H2S] Moteur pret.
+
+[SERVER] Dashboard : http://localhost:8080/
+[SERVER] Test ESP32: POST http://0.0.0.0:8080/api/connectivity
+[SERVER] API casque: POST http://0.0.0.0:8080/api/sensor_data
+ * Serving Flask app 'app'
+ * Debug mode: off

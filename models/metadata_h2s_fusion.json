@@ -1,0 +1,320 @@
+{
+  "dataset_path": "D:\\gas_monitoring_system\\gas_monitoring_system\\notebooks\\DATASET01.csv",
+  "rows_clean": 654440,
+  "system_vector": "x_t = {C_H2S_fusion(t), T(t), H(t)}",
+  "sensor_columns": [
+    "Sensor1[ppm]",
+    "Sensor2[ppm]",
+    "Sensor3[ppm]",
+    "Sensor4[ppm]"
+  ],
+  "fusion_formula": "C_H2S_fusion = mean(Sensor1, Sensor2, Sensor3, Sensor4)",
+  "main_training_variable": "x = C_H2S_fusion",
+  "thresholds": {
+    "normal": "C_H2S_fusion < 10 ppm",
+    "modere": "10 <= C_H2S_fusion < 20 ppm",
+    "dangereux": "C_H2S_fusion >= 20 ppm"
+  },
+  "label_match_rate_with_dataset_labels": 0.6063611637430475,
+  "class_distribution": {
+    "NORMAL": 613873,
+    "MODERE": 28388,
+    "DANGEREUX": 12179
+  },
+  "cleaning_report": [
+    {
+      "Traitement": "Lignes initiales",
+      "Nombre": 654440
+    },
+    {
+      "Traitement": "Valeurs manquantes supprimees",
+      "Nombre": 0
+    },
+    {
+      "Traitement": "Doublons exacts supprimes",
+      "Nombre": 0
+    },
+    {
+      "Traitement": "Valeurs physiques invalides supprimees",
+      "Nombre": 0
+    },
+    {
+      "Traitement": "Doublons temporels traites",
+      "Nombre": 0
+    },
+    {
+      "Traitement": "Lignes finales",
+      "Nombre": 654440
+    }
+  ],
+  "post_checks": {
+    "valeurs_nulles": 0,
+    "doublons_exacts": 0,
+    "capteurs_negatifs": 0,
+    "fusion_negative": 0,
+    "temperature_hors_plage": 0,
+    "humidite_hors_plage": 0,
+    "classes_invalides": 0,
+    "doublons_temps": 0
+  },
+  "rf": {
+    "oob_score": 1.0,
+    "rows_used_for_rf_photos": 60000,
+    "balance_report": [
+      {
+        "classe": "NORMAL",
+        "avant": 19395,
+        "apres": 19395,
+        "synthetiques_generes": 0
+      },
+      {
+        "classe": "MODERE",
+        "avant": 14078,
+        "apres": 19395,
+        "synthetiques_generes": 0
+      },
+      {
+        "classe": "DANGEREUX",
+        "avant": 8525,
+        "apres": 19395,
+        "synthetiques_generes": 0
+      }
+    ],
+    "train": {
+      "accuracy": 1.0,
+      "balanced_accuracy": 1.0,
+      "f1_macro": 1.0,
+      "f1_weighted": 1.0,
+      "classification_report": {
+        "NORMAL": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 19395.0
+        },
+        "MODERE": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 19395.0
+        },
+        "DANGEREUX": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 19395.0
+        },
+        "accuracy": 1.0,
+        "macro avg": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 58185.0
+        },
+        "weighted avg": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 58185.0
+        }
+      },
+      "confusion_matrix": [
+        [
+          19395,
+          0,
+          0
+        ],
+        [
+          0,
+          19395,
+          0
+        ],
+        [
+          0,
+          0,
+          19395
+        ]
+      ]
+    },
+    "validation": {
+      "accuracy": 1.0,
+      "balanced_accuracy": 1.0,
+      "f1_macro": 1.0,
+      "f1_weighted": 1.0,
+      "classification_report": {
+        "NORMAL": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 4157.0
+        },
+        "MODERE": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 3018.0
+        },
+        "DANGEREUX": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 1827.0
+        },
+        "accuracy": 1.0,
+        "macro avg": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 9002.0
+        },
+        "weighted avg": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 9002.0
+        }
+      },
+      "confusion_matrix": [
+        [
+          4157,
+          0,
+          0
+        ],
+        [
+          0,
+          3018,
+          0
+        ],
+        [
+          0,
+          0,
+          1827
+        ]
+      ]
+    },
+    "test": {
+      "accuracy": 1.0,
+      "balanced_accuracy": 1.0,
+      "f1_macro": 1.0,
+      "f1_weighted": 1.0,
+      "classification_report": {
+        "NORMAL": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 4156.0
+        },
+        "MODERE": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 3017.0
+        },
+        "DANGEREUX": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 1827.0
+        },
+        "accuracy": 1.0,
+        "macro avg": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 9000.0
+        },
+        "weighted avg": {
+          "precision": 1.0,
+          "recall": 1.0,
+          "f1-score": 1.0,
+          "support": 9000.0
+        }
+      },
+      "confusion_matrix": [
+        [
+          4156,
+          0,
+          0
+        ],
+        [
+          0,
+          3017,
+          0
+        ],
+        [
+          0,
+          0,
+          1827
+        ]
+      ]
+    },
+    "learning_curve": {
+      "sizes": [
+        2909,
+        5818,
+        14546,
+        29092,
+        43638,
+        58185
+      ],
+      "train_f1_macro": [
+        0.9996561801615953,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "validation_f1_macro": [
+        0.9996118534278035,
+        0.9999046870986045,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ]
+    },
+    "feature_importance": {
+      "C_H2S_fusion_ppm": 1.0
+    }
+  },
+  "lstm": {
+    "status": "LSTM entraine localement pour les captures.",
+    "window": 60,
+    "horizon": 50,
+    "local_photo_stride": 128,
+    "input_shape": [
+      60,
+      1
+    ],
+    "train_sequences": 3579,
+    "validation_sequences": 767,
+    "test_sequences": 767,
+    "epochs_defined": 30,
+    "epochs_executed": 30,
+    "test_mae_ppm": 2.2625532150268555,
+    "test_rmse_ppm": 4.934544898231359,
+    "test_r2": 0.18585842847824097,
+    "h2s_min_train": 0.005,
+    "h2s_max_train": 31.440000000000005
+  },
+  "future": {
+    "future_risk_distribution": [
+      {
+        "Classe future": "NORMAL",
+        "Nombre": 767,
+        "Pourcentage": 100.0
+      },
+      {
+        "Classe future": "MODERE",
+        "Nombre": 0,
+        "Pourcentage": 0.0
+      },
+      {
+        "Classe future": "DANGEREUX",
+        "Nombre": 0,
+        "Pourcentage": 0.0
+      }
+    ]
+  }
+}

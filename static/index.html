@@ -1,0 +1,1248 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GazMonitor Pro — Surveillance H₂S · KCC Kolwezi</title>
+<link rel="icon" type="image/png" href="/static/casque_iot.png">
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script src="/static/helmet3d.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+[data-theme="dark"]{
+  --bg:#0c1018;--card:#141a26;--card2:#1a2130;--line:#252e3f;
+  --tx:#e6ebf3;--tx2:#9aa7bd;--tx3:#5d6a82;
+  --sh:0 1px 3px #0006,0 8px 24px #0004;
+}
+[data-theme="light"]{
+  --bg:#f4f6fa;--card:#ffffff;--card2:#f7f9fc;--line:#e4e9f2;
+  --tx:#1a2433;--tx2:#5a6678;--tx3:#9aa6b8;
+  --sh:0 1px 2px #1a24330d,0 6px 18px #1a243312;
+}
+:root{
+  --ok:#15a34a;--warn:#ca8a04;--bad:#dc2626;--fire:#ea580c;
+  --h2s:#0e9ec4;--pred:#7c4dd6;--temp:#e0567a;--hum:#10a37f;--dose:#c98a16;--accent:#2f6df0;
+  --rad:14px;
+}
+html,body{min-height:100%}
+body{background:var(--bg);color:var(--tx);
+  font-family:'Inter',-apple-system,'Segoe UI',Roboto,sans-serif;
+  font-feature-settings:'ss01','cv01';display:flex;flex-direction:column;
+  transition:background .25s,color .25s;-webkit-font-smoothing:antialiased}
+
+/* HEADER */
+header{background:var(--card);border-bottom:1px solid var(--line);
+  padding:0 22px;height:58px;display:flex;align-items:center;justify-content:space-between;gap:18px;
+  position:sticky;top:0;z-index:50}
+.brand{display:flex;align-items:center;gap:11px}
+.brand .mk{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--accent),var(--h2s));
+  display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:#fff}
+.brand .t{font-size:1.02rem;font-weight:700;letter-spacing:-.01em}
+.brand .s{font-size:.68rem;color:var(--tx2);font-weight:500}
+.ctrls{display:flex;align-items:center;gap:9px}
+.src{display:flex;align-items:center;gap:8px;padding:6px 13px;border-radius:99px;
+  font-size:.74rem;font-weight:600;border:1px solid var(--line);background:var(--card2);color:var(--tx2)}
+.src .led{width:8px;height:8px;border-radius:50%;background:var(--tx3)}
+.src.live{color:var(--ok);border-color:#15a34a44}.src.live .led{background:var(--ok);box-shadow:0 0 0 3px #15a34a22;animation:bl 1.6s infinite}
+.esp-mini-icon{width:20px;height:20px;border-radius:6px;object-fit:cover;background:#fff;border:1px solid var(--line);box-shadow:0 0 0 2px #00000010;flex-shrink:0}
+.pill.esp-status{gap:9px;padding:5px 12px 5px 6px}
+.esp-status-helmet{width:34px;height:34px;border-radius:9px;object-fit:cover;background:#fff;border:1px solid currentColor;box-shadow:0 6px 16px #00000026;flex-shrink:0}
+.helmet-fallback-img{width:150px;max-width:70%;height:auto;object-fit:contain;filter:drop-shadow(0 12px 22px #0008)}
+@keyframes bl{50%{opacity:.45}}
+select,.btn{font-family:inherit;font-size:.78rem;font-weight:600;border-radius:9px;cursor:pointer;transition:all .15s}
+select{background:var(--card2);border:1px solid var(--line);color:var(--tx);padding:8px 11px}
+.btn{display:inline-flex;align-items:center;gap:7px;padding:8px 15px;border:1px solid var(--line);background:var(--card2);color:var(--tx)}
+.btn:hover{border-color:var(--accent);transform:translateY(-1px)}
+.btn:active{transform:translateY(0)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary.on{background:var(--bad);border-color:var(--bad);animation:bl 1.3s infinite}
+.btn.fire{border-color:var(--fire);color:var(--fire)}
+.btn.fire:hover{background:var(--fire);color:#fff}
+.btn.ghost{padding:8px 11px}
+.ico{width:38px;height:38px;padding:0;justify-content:center;border-radius:9px}
+.clock{font-size:.76rem;color:var(--tx2);font-variant-numeric:tabular-nums;min-width:120px;text-align:right}
+
+/* BANNERS */
+.banner{display:none;margin:10px 16px 0;border-radius:12px;padding:13px 18px;
+  align-items:center;justify-content:space-between;gap:14px;font-weight:600;font-size:.9rem;box-shadow:var(--sh)}
+.banner.show{display:flex;animation:slidein .3s ease}
+@keyframes slidein{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.banner.gas{background:#dc26261a;border:1px solid #dc262655;color:var(--bad)}
+.banner.fire{background:#ea580c1a;border:1px solid #ea580c66;color:var(--fire);animation:firepulse 1s infinite}
+@keyframes firepulse{50%{background:#ea580c33}}
+.banner .x{padding:6px 15px;border-radius:8px;border:1px solid currentColor;background:none;color:inherit;font-weight:600;font-size:.76rem;cursor:pointer}
+
+/* GRID */
+.wrap{flex:1;display:grid;grid-template-columns:262px 1fr 332px;gap:14px;padding:14px}
+.col{display:flex;flex-direction:column;gap:14px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:var(--rad);box-shadow:var(--sh);overflow:hidden}
+.ph{padding:13px 16px 11px;display:flex;align-items:center;justify-content:space-between}
+.ph h3{font-size:.74rem;font-weight:700;letter-spacing:.02em;color:var(--tx)}
+.ph .hint{font-size:.62rem;color:var(--tx3);font-weight:500}
+.pb{padding:0 16px 16px}
+
+/* worker */
+.who{display:flex;gap:13px;align-items:center;margin-bottom:13px}
+.ava{width:54px;height:54px;border-radius:13px;background:linear-gradient(135deg,var(--accent),var(--h2s));
+  display:flex;align-items:center;justify-content:center;font-size:1.5rem;color:#fff;flex-shrink:0}
+.who .nm{font-size:.98rem;font-weight:700}.who .zn{font-size:.72rem;color:var(--tx2)}
+.pill{display:inline-flex;align-items:center;gap:6px;margin-top:5px;padding:3px 11px;border-radius:99px;font-size:.66rem;font-weight:600;border:1px solid var(--line);color:var(--tx2)}
+.pill .led{width:7px;height:7px;border-radius:50%;background:var(--tx3)}
+.pill.on{color:var(--ok);border-color:#15a34a44}.pill.on .led{background:var(--ok)}
+.row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line);font-size:.8rem}
+.row:last-child{border:0}.row .k{color:var(--tx2)}.row .v{font-weight:600;font-variant-numeric:tabular-nums}
+
+/* flotte multi-casques */
+.fleet{display:flex;flex-direction:column;gap:7px;max-height:248px;overflow-y:auto}
+.fleet-it{display:flex;align-items:center;gap:10px;padding:9px 11px;border:1px solid var(--line);border-radius:11px;cursor:pointer;transition:border-color .15s,background .15s;background:var(--card2)}
+.fleet-it:hover{border-color:var(--tx2)}
+.fleet-it.sel{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.fleet-it.off{opacity:.42}
+.fleet-it .fdot{width:11px;height:11px;border-radius:50%;flex-shrink:0;box-shadow:0 0 7px currentColor}
+.fleet-it .fnm{font-weight:600;font-size:.82rem}
+.fleet-it .fzn{font-size:.65rem;color:var(--tx2)}
+.fleet-it .fppm{margin-left:auto;text-align:right;line-height:1.15}
+.fleet-it .fppm b{font-size:.96rem;font-variant-numeric:tabular-nums}
+.fleet-it .fppm span{font-size:.58rem;color:var(--tx2);display:block}
+.fleet-empty{font-size:.76rem;color:var(--tx2);text-align:center;padding:16px 8px}
+
+/* vue flotte — situation de tous les travailleurs */
+.fo-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.fo-card{padding:11px 12px;border:1px solid var(--line);border-radius:12px;background:var(--card2);cursor:pointer;transition:border-color .15s,box-shadow .15s}
+.fo-card:hover{border-color:var(--tx2)}
+.fo-card.sel{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.fo-card.off{opacity:.45}
+.fo-top{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.fo-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;box-shadow:0 0 8px currentColor}
+.fo-name{font-size:.78rem;font-weight:700;line-height:1.2}
+.fo-zone{font-size:.6rem;color:var(--tx2);margin-top:1px}
+.fo-h2s{font-size:1.55rem;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+.fo-meta{display:flex;justify-content:space-between;margin-top:6px;font-size:.62rem;color:var(--tx2)}
+.fo-tag{display:inline-block;padding:2px 8px;border-radius:99px;font-size:.58rem;font-weight:700;border:1px solid;margin-top:6px}
+.fo-empty{grid-column:1/-1;text-align:center;color:var(--tx2);font-size:.78rem;padding:20px}
+
+/* gauges */
+.gg{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.g{background:var(--card);border:1px solid var(--line);border-radius:var(--rad);padding:15px 11px 13px;box-shadow:var(--sh);transition:border-color .25s}
+.g .lab{font-size:.66rem;font-weight:600;color:var(--tx2);text-transform:uppercase;letter-spacing:.04em;margin-bottom:7px}
+.g .num{font-size:1.95rem;font-weight:750;line-height:1;font-variant-numeric:tabular-nums;transition:color .25s}
+.g .u{font-size:.66rem;color:var(--tx3);font-weight:500;margin-left:3px}
+.g .track{height:5px;background:var(--line);border-radius:99px;overflow:hidden;margin:11px 0 5px}
+.g .fillb{height:100%;border-radius:99px;transition:width .6s cubic-bezier(.4,0,.2,1),background .3s;width:0}
+.g .ref{font-size:.6rem;color:var(--tx3)}
+
+/* map */
+#map{height:344px;border-radius:var(--rad);z-index:1}
+
+/* casque 3D */
+#helmet3d-wrap{position:relative;height:320px;border-radius:var(--rad);overflow:hidden;background:radial-gradient(ellipse 80% 70% at 42% 32%,#525862 0%,#353a42 50%,#22262c 100%);border:1px solid #3a4048;box-shadow:inset 0 1px 0 #ffffff0a}
+#helmet3d-canvas{width:100%;height:100%;display:block;cursor:grab}
+#helmet3d-canvas:active{cursor:grabbing}
+#helmet3d-fallback{display:none;position:absolute;inset:0;align-items:center;justify-content:center;flex-direction:column;gap:8px;color:var(--tx2);font-size:.8rem;background:var(--card2)}
+#helmet3d-fallback.show{display:flex}
+#helmet3d-legend{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.h3d-tag{font-size:.62rem;font-weight:600;padding:3px 9px;border-radius:99px;border:1px solid var(--line);color:var(--tx2);background:var(--card2)}
+.h3d-tag.on{border-color:var(--accent);color:var(--accent);background:#2f6df014}
+.mtabs{display:flex;gap:6px}
+.mtab{padding:4px 11px;border-radius:8px;border:1px solid var(--line);font-size:.66rem;font-weight:600;cursor:pointer;background:var(--card2);color:var(--tx2)}
+.mtab.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+/* RF */
+.ring{width:128px;height:128px;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;margin:8px auto 14px;
+  border:7px solid var(--ok);color:var(--ok);transition:border-color .3s,color .3s}
+.ring .n{font-size:2.7rem;font-weight:800;line-height:1}.ring .l{font-size:.56rem;color:var(--tx2);text-transform:uppercase;letter-spacing:.14em}
+.tag{display:block;width:fit-content;margin:0 auto 15px;padding:8px 26px;border-radius:99px;font-size:.86rem;font-weight:700;border:2px solid var(--ok);color:var(--ok);background:#15a34a14;letter-spacing:.04em;transition:all .3s}
+.conf{text-align:center;font-size:.8rem;color:var(--tx2);margin-bottom:15px}.conf b{color:var(--tx)}
+.prob{display:flex;align-items:center;gap:10px;margin-bottom:9px;font-size:.76rem}
+.prob .pl{width:96px;color:var(--tx2)}.prob .pt{flex:1;height:7px;background:var(--line);border-radius:99px;overflow:hidden}
+.prob .pf{height:100%;border-radius:99px;transition:width .5s cubic-bezier(.4,0,.2,1)}.prob .pp{width:46px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+
+/* LSTM */
+.lb{text-align:center}
+.lb .big{font-size:2.7rem;font-weight:800;color:var(--pred);line-height:1;font-variant-numeric:tabular-nums}
+.lb .cap{font-size:.72rem;color:var(--tx2)}
+.bufrow{display:flex;justify-content:space-between;font-size:.72rem;color:var(--tx2);margin-top:13px}
+.buft{height:8px;background:var(--line);border-radius:99px;overflow:hidden;margin-top:6px}
+.buff{height:100%;background:linear-gradient(90deg,var(--pred),var(--h2s));border-radius:99px;transition:width .4s;width:0}
+.lst{margin-top:12px;font-size:.7rem;padding:8px 12px;border-radius:9px;font-weight:600;text-align:center}
+.lst.idle{background:#15a34a14;color:var(--ok)}.lst.wait{background:#ca8a0414;color:var(--warn)}.lst.ok{background:#7c4dd614;color:var(--pred)}
+.lnk{display:block;width:100%;margin-top:12px;padding:9px;border-radius:9px;border:1px solid var(--pred);background:none;color:var(--pred);font-size:.74rem;font-weight:600;cursor:pointer}
+.lnk:hover{background:var(--pred);color:#fff}
+
+/* chart */
+.chart{grid-column:1/4}#chart{height:236px}
+
+/* manual */
+.mr{margin-bottom:10px}
+.mr label{display:flex;justify-content:space-between;font-size:.72rem;color:var(--tx2);margin-bottom:4px}
+.mr label b{color:var(--tx);font-variant-numeric:tabular-nums}
+.mr input[type=range]{width:100%;accent-color:var(--h2s);cursor:pointer;height:4px}
+.mr input[type=number]{width:62px;background:var(--card2);border:1px solid var(--line);border-radius:7px;padding:3px 7px;color:var(--tx);font-size:.74rem}
+.pset{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:12px}
+.ps{padding:8px 2px;border-radius:9px;border:1px solid;font-size:.7rem;font-weight:600;cursor:pointer;text-align:center;background:none;color:var(--tx);transition:all .15s}
+.ps:hover{transform:translateY(-1px)}
+.ps.n{border-color:#15a34a66}.ps.m{border-color:#ca8a0466}.ps.d{border-color:#dc262666}
+.send{width:100%;padding:11px;border-radius:10px;border:0;background:var(--accent);color:#fff;font-size:.82rem;font-weight:700;cursor:pointer;transition:filter .15s}
+.send:hover{filter:brightness(1.08)}
+.preview{border:1px solid var(--ok);background:#15a34a12;border-radius:10px;padding:9px 13px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}
+.preview .l{font-size:.62rem;color:var(--tx2);text-transform:uppercase}.preview .v{font-size:.82rem;font-weight:700;color:var(--ok)}
+
+/* VEILLE overlay */
+.standby{position:absolute;inset:0;background:var(--card);display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:10px;border-radius:var(--rad);z-index:5;text-align:center;padding:24px}
+.standby .ic{font-size:2.4rem;opacity:.5}
+.standby .t1{font-size:.96rem;font-weight:700}
+.standby .t2{font-size:.78rem;color:var(--tx2);max-width:280px;line-height:1.5}
+.dim{opacity:.4;filter:grayscale(.6);pointer-events:none}
+
+/* modal */
+.modal{display:none;position:fixed;inset:0;background:#000a;z-index:200;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(3px)}
+.modal.show{display:flex}
+.mbox{background:var(--card);border:1px solid var(--line);border-radius:16px;max-width:540px;width:100%;box-shadow:var(--sh);max-height:90vh;overflow-y:auto}
+.mh{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+.mh h3{font-size:1rem;font-weight:700}.mc{cursor:pointer;font-size:1.3rem;color:var(--tx2)}
+.mb{padding:20px}
+.stp{display:flex;gap:13px;margin-bottom:17px}
+.stp .n{width:27px;height:27px;border-radius:8px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.8rem;flex-shrink:0}
+.stp .c{flex:1;font-size:.84rem;line-height:1.55}
+.url{background:var(--card2);border:1px dashed var(--accent);border-radius:9px;padding:11px 14px;font-family:ui-monospace,monospace;font-size:1rem;color:var(--h2s);text-align:center;margin:7px 0;font-weight:700;user-select:all}
+.fld{margin-bottom:11px}.fld label{display:block;font-size:.72rem;color:var(--tx2);margin-bottom:5px}
+.fld input{width:100%;background:var(--card2);border:1px solid var(--line);border-radius:8px;padding:9px 12px;color:var(--tx);font-size:.85rem}
+.code{background:#0a0e16;border:1px solid var(--line);border-radius:9px;padding:13px;font-family:ui-monospace,monospace;font-size:.74rem;color:#7dd3fc;white-space:pre;overflow-x:auto;margin-top:9px}
+
+
+/* Navigation ergonomique */
+.topnav{display:flex;align-items:center;gap:8px;padding:10px 16px 0;flex-wrap:wrap}
+.navbtn{border:1px solid var(--line);background:var(--card);color:var(--tx2);border-radius:9px;padding:8px 13px;font-size:.76rem;font-weight:700;cursor:pointer}
+.navbtn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.navtools{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}.navtools select{height:36px}.navtools .btn{height:36px}
+body[data-page="surveillance"] #gps-panel,body[data-page="surveillance"] #manual-panel,body[data-page="surveillance"] #helmet3d-panel,body[data-page="surveillance"] #map-panel,body[data-page="surveillance"] #chart-panel,body[data-page="surveillance"] #workers-panel{display:none}
+body[data-page="map"] .wrap .panel{display:none}body[data-page="map"] #fleet-panel,body[data-page="map"] #map-panel{display:block}
+body[data-page="visual"] .wrap .panel{display:none}body[data-page="visual"] #detail-panel,body[data-page="visual"] #helmet3d-panel{display:block}
+body[data-page="simulation"] .wrap .panel{display:none}body[data-page="simulation"] #manual-panel,body[data-page="simulation"] #chart-panel,body[data-page="simulation"] #fleet-overview-panel{display:block}
+body[data-page="workers"] .wrap{grid-template-columns:1fr}body[data-page="workers"] .wrap .col{display:contents}body[data-page="workers"] .wrap .panel{display:none}body[data-page="workers"] #workers-panel{display:block}
+.worker-form{display:grid;grid-template-columns:1fr 1.2fr 1fr auto;gap:9px;margin-bottom:14px}.worker-form input,.worker-form select{background:var(--card2);border:1px solid var(--line);border-radius:8px;color:var(--tx);padding:9px 11px;font:inherit;font-size:.8rem}.worker-form button{white-space:nowrap}
+.worker-table{display:flex;flex-direction:column;gap:8px}.worker-row{display:grid;grid-template-columns:1fr 1fr .7fr auto;gap:10px;align-items:center;border:1px solid var(--line);background:var(--card2);border-radius:10px;padding:10px 12px}.worker-main{font-weight:800}.worker-sub{font-size:.68rem;color:var(--tx2);margin-top:2px}.status-badge{width:max-content;border:1px solid;border-radius:99px;padding:3px 9px;font-size:.65rem;font-weight:800}.status-badge.active{color:var(--ok);border-color:#15a34a55;background:#15a34a12}.status-badge.inactive{color:var(--warn);border-color:#ca8a0455;background:#ca8a0412}.mini-actions{display:flex;gap:6px;justify-content:flex-end}.mini-actions button{border:1px solid var(--line);background:var(--card);color:var(--tx);border-radius:8px;padding:7px 10px;font-size:.7rem;font-weight:700;cursor:pointer}.mini-actions button.danger{color:var(--bad);border-color:#dc262655}
+@media(max-width:760px){.worker-form,.worker-row{grid-template-columns:1fr}.navtools{margin-left:0}.topnav{padding:8px}.ctrls{gap:6px}.clock{display:none}}
+
+@media(max-width:1180px){.wrap{grid-template-columns:1fr}.chart{grid-column:1}.gg{grid-template-columns:repeat(2,1fr)}}
+
+/* Design refresh */
+[data-theme="dark"]{
+  --bg:#080d14;--card:#111827;--card2:#172033;--line:#293449;
+  --tx:#f4f7fb;--tx2:#a9b6c8;--tx3:#6f7e93;
+  --sh:0 16px 36px #00000038,0 1px 0 #ffffff08 inset;
+}
+[data-theme="light"]{
+  --bg:#f3f6fb;--card:#ffffff;--card2:#f7f9fd;--line:#dde5f0;
+  --tx:#162033;--tx2:#536174;--tx3:#8a97aa;
+  --sh:0 14px 34px #17203312,0 1px 0 #ffffff inset;
+}
+:root{
+  --ok:#16a34a;--warn:#d09400;--bad:#dc2626;--fire:#ea580c;
+  --h2s:#0896b8;--pred:#7c3aed;--accent:#2563eb;--rad:12px;
+  --focus:0 0 0 3px #2563eb33;
+}
+body{
+  background:linear-gradient(180deg,#0b1220 0,#080d14 340px),var(--bg);
+  letter-spacing:0;
+}
+[data-theme="light"] body{background:linear-gradient(180deg,#eaf0f8 0,#f3f6fb 320px),var(--bg)}
+header{
+  height:64px;background:rgba(17,24,39,.94);border-bottom-color:#334155;
+  box-shadow:0 10px 28px #00000024;backdrop-filter:blur(14px);
+}
+[data-theme="light"] header{background:rgba(255,255,255,.94);border-bottom-color:#dde5f0}
+.brand .mk{box-shadow:0 0 0 1px #ffffff18,0 10px 20px #0000002e}
+.brand .t{font-size:1.08rem}.brand .s{font-size:.72rem}
+.ctrls{gap:10px}
+.btn,select,.navbtn,.mtab,.mini-actions button,.send,.lnk{outline:none}
+.btn:focus-visible,select:focus-visible,.navbtn:focus-visible,.mtab:focus-visible,.mini-actions button:focus-visible,.send:focus-visible,.lnk:focus-visible{box-shadow:var(--focus)}
+.btn,select,.navbtn,.mtab{
+  border-color:#334155;background:linear-gradient(180deg,#1a2435,#141d2c);
+  box-shadow:0 1px 0 #ffffff08 inset;
+}
+[data-theme="light"] .btn,[data-theme="light"] select,[data-theme="light"] .navbtn,[data-theme="light"] .mtab{background:linear-gradient(180deg,#fff,#f6f8fc);border-color:#dbe3ee}
+.btn:hover,.navbtn:hover,.mtab:hover{border-color:var(--accent);box-shadow:0 10px 22px #00000022}
+.btn.primary,.navbtn.on,.mtab.on{background:linear-gradient(180deg,#3478ff,#245fe6);border-color:#4b83ff;color:#fff}
+.src{height:38px;border-radius:10px;background:linear-gradient(180deg,#182337,#111a2a)}
+[data-theme="light"] .src{background:#f7f9fd}
+.topnav{padding:12px 16px 4px;gap:9px}
+.navtools{align-items:center}
+.wrap{gap:16px;padding:16px;align-items:start}
+.col{gap:16px;min-width:0}
+.panel{
+  position:relative;background:linear-gradient(180deg,#121b2b,#101827);
+  border-color:#2b3649;border-radius:var(--rad);box-shadow:var(--sh);
+}
+[data-theme="light"] .panel{background:linear-gradient(180deg,#fff,#f9fbfe);border-color:#dde5f0}
+.panel::before{
+  content:"";position:absolute;left:0;right:0;top:0;height:1px;
+  background:linear-gradient(90deg,transparent,#ffffff22,transparent);pointer-events:none;
+}
+.ph{padding:14px 16px 12px;background:linear-gradient(180deg,#ffffff06,#ffffff00)}
+.ph h3{font-size:.76rem;text-transform:uppercase;letter-spacing:.055em}
+.ph .hint{font-size:.66rem}
+.pb{position:relative}
+.row{padding:9px 0}
+.gg{gap:14px}
+.g{
+  min-height:128px;position:relative;overflow:hidden;
+  background:linear-gradient(180deg,#152033,#111827);border-color:#2b3649;
+}
+[data-theme="light"] .g{background:linear-gradient(180deg,#fff,#f7f9fd);border-color:#dde5f0}
+.g::before{
+  content:"";position:absolute;left:11px;right:11px;top:0;height:3px;border-radius:0 0 99px 99px;
+  background:linear-gradient(90deg,var(--accent),var(--h2s));opacity:.36;
+}
+.g:hover{border-color:#3d4c64;transform:translateY(-1px)}
+.g .lab{font-size:.67rem;letter-spacing:.055em}
+.g .num{font-size:2.08rem}
+.g .track,.pt,.buft{background:#263349}
+[data-theme="light"] .g .track,[data-theme="light"] .pt,[data-theme="light"] .buft{background:#e3e9f2}
+.fo-card,.fleet-it,.worker-row{
+  background:linear-gradient(180deg,var(--card2),#111a2a);border-color:#2c374a;
+}
+[data-theme="light"] .fo-card,[data-theme="light"] .fleet-it,[data-theme="light"] .worker-row{background:#f8fafd;border-color:#dfe6f0}
+.fo-card:hover,.fleet-it:hover,.worker-row:hover{border-color:#4a5a72}
+.ring{
+  background:linear-gradient(180deg,#131d2e,#0f1725);
+  box-shadow:inset 0 0 0 10px #00000018,0 16px 34px #0000002e;
+}
+[data-theme="light"] .ring{background:#f8fafd;box-shadow:inset 0 0 0 10px #edf2f7,0 12px 28px #17203314}
+.tag{box-shadow:0 10px 22px #00000020}
+.prob .pl{font-weight:650}
+.lb .big{font-size:2.95rem;text-shadow:0 10px 26px #7c3aed33}
+.lst{border:1px solid transparent}
+.lst.idle{border-color:#16a34a24}.lst.wait{border-color:#d0940028}.lst.ok{border-color:#7c3aed30}
+#helmet3d-panel .pb{padding:0 16px 16px}
+#helmet3d-wrap{
+  height:390px;border:0;border-radius:var(--rad);
+  background:
+    linear-gradient(180deg,rgba(15,23,42,.12),rgba(15,23,42,.72)),
+    radial-gradient(ellipse 82% 78% at 50% 27%,#6b7280 0%,#3f4856 44%,#161f2d 100%);
+  box-shadow:inset 0 1px 0 #ffffff18,inset 0 -36px 72px #00000035,0 18px 38px #00000030;
+}
+#helmet3d-wrap::after{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(180deg,transparent 58%,rgba(0,0,0,.18));
+}
+#helmet3d-canvas{position:relative;z-index:1}
+#helmet3d-legend{gap:8px;margin-top:12px}
+.h3d-tag{border-color:#334155;background:#101827;color:#b8c5d8;padding:5px 10px}
+[data-theme="light"] .h3d-tag{background:#f7f9fd;border-color:#dce4ef;color:#536174}
+body[data-page="visual"] .wrap{grid-template-columns:minmax(260px,340px) minmax(0,1fr)}
+body[data-page="visual"] .wrap .col:nth-child(3){display:none}
+body[data-page="visual"] #helmet3d-wrap{height:min(62vh,560px);min-height:390px}
+body[data-page="visual"] #helmet3d-panel{min-width:0}
+.worker-form input,.worker-form select,.fld input,.mr input[type=number]{
+  border-color:#334155;background:#111a2a;
+}
+[data-theme="light"] .worker-form input,[data-theme="light"] .worker-form select,[data-theme="light"] .fld input,[data-theme="light"] .mr input[type=number]{background:#fff;border-color:#dce4ef}
+
+@media(max-width:1180px){
+  .wrap{gap:14px;padding:12px}
+  body[data-page="visual"] .wrap{grid-template-columns:1fr}
+  body[data-page="visual"] .wrap .col:nth-child(3){display:none}
+  #helmet3d-wrap{height:360px}
+}
+@media(max-width:760px){
+  header{height:auto;min-height:62px;padding:9px 12px;align-items:flex-start}
+  .brand .s{display:none}
+  .ctrls{justify-content:flex-end;flex-wrap:wrap}
+  .topnav{padding:10px 10px 0}
+  .navbtn{padding:8px 10px}
+  .wrap{padding:10px;gap:10px}
+  .gg{grid-template-columns:1fr}
+  .g{min-height:112px}
+  #helmet3d-wrap,body[data-page="visual"] #helmet3d-wrap{height:315px;min-height:315px}
+}
+</style>
+</head>
+<body data-page="surveillance">
+
+<header>
+  <div class="brand">
+    <div class="mk" style="padding:0;overflow:hidden;background:none;border-radius:9px">
+      <img src="/static/casque_iot.png" alt="Casque IoT GazMonitor"
+           style="width:34px;height:34px;object-fit:cover;border-radius:9px;display:block"
+           onerror="this.style.display='none';this.parentElement.textContent='GM';this.parentElement.style.background='linear-gradient(135deg,var(--accent),var(--h2s))'">
+    </div>
+    <div><div class="t">GazMonitor Pro</div><div class="s">Mine KCC Kamoto · Kolwezi, Lualaba</div></div></div>
+  <div class="ctrls">
+    <div class="src" id="src"><span class="led"></span><span id="src-t">En veille</span></div>
+    <div class="src" id="esp-mini" title="Etat de la liaison ESP32"><img class="esp-mini-icon" src="/static/casque_iot.png" alt="Casque IoT"><span id="esp-mini-t">ESP32...</span></div>
+    <button class="btn" id="bconn" onclick="toggleServer()" title="Connecter / deconnecter le serveur">Connecte</button>
+    <button class="btn" onclick="openEsp()">ESP32</button>
+    <button class="btn" onclick="fetch('/api/auth/logout',{method:'POST'}).finally(()=>location.href='/login')">Déconnexion</button>
+    <button class="btn ico" id="bth" onclick="toggleTheme()">☾</button>
+    <div class="clock" id="clock">—</div>
+  </div>
+</header>
+
+<div class="banner gas" id="gas-banner"><span id="gas-msg">Situation dangereuse — évacuation</span><button class="x" onclick="silenceAlarm()">Couper l'alarme</button></div>
+
+<div class="topnav">
+  <button class="navbtn on" data-page="surveillance" onclick="showPage('surveillance')">Surveillance</button>
+  <button class="navbtn" data-page="map" onclick="showPage('map')">Carte</button>
+  <button class="navbtn" data-page="visual" onclick="showPage('visual')">Vue 3D</button>
+  <button class="navbtn" data-page="simulation" onclick="showPage('simulation')">Simulation</button>
+  <button class="navbtn" data-page="workers" onclick="showPage('workers')">Travailleurs / casques</button>
+  <div class="navtools" id="sim-tools">
+    <select id="scen">
+      <option value="tous" selected>Tous scénarios (3 niveaux)</option>
+      <option value="cycle">Cycle rotatif 0→1→2</option>
+      <option value="normal">Tous — Normal</option>
+      <option value="modere">Tous — Modéré</option>
+      <option value="dangereux">Tous — Dangereux</option>
+    </select>
+    <button class="btn primary" id="bsim" onclick="toggleSim()">Simuler</button>
+    <button class="btn" onclick="exportAll()">Exporter tout</button>
+    <button class="btn ghost" onclick="exportToday()">Exporter jour</button>
+  </div>
+</div>
+
+<div class="wrap">
+  <!-- GAUCHE -->
+  <div class="col">
+    <div class="panel" id="fleet-panel">
+      <div class="ph"><h3>Casques actifs</h3><span class="hint" id="fleet-count">0 en ligne</span></div>
+      <div class="pb fleet" id="fleet-list">
+        <div class="fleet-empty" id="fleet-empty">Aucun casque connecté</div>
+      </div>
+    </div>
+    <div class="panel" id="detail-panel">
+      <div class="ph"><h3>Détail casque</h3></div>
+      <div class="pb">
+        <div class="who"><div class="ava">👷</div>
+          <div><div class="nm" id="w-name">—</div><div class="zn" id="w-zone">—</div>
+            <span class="pill" id="w-pill"><span class="led"></span> Hors ligne</span></div></div>
+        <div class="row"><span class="k">Casque</span><span class="v" id="w-id">—</span></div>
+        <div class="row"><span class="k">Capteur H₂S</span><span class="v" id="w-sens">—</span></div>
+        <div class="row"><span class="k">Signal WiFi</span><span class="v" id="w-rssi">—</span></div>
+        <div class="row"><span class="k">Mesures</span><span class="v" id="w-cnt">0</span></div>
+      </div>
+    </div>
+    <div class="panel" id="gps-panel">
+      <div class="ph"><h3>Position GPS</h3><span class="hint" id="gps-fix">—</span></div>
+      <div class="pb">
+        <div class="row"><span class="k">Latitude</span><span class="v" id="g-lat">—</span></div>
+        <div class="row"><span class="k">Longitude</span><span class="v" id="g-lng">—</span></div>
+        <div class="row"><span class="k">Altitude</span><span class="v" id="g-alt">—</span></div>
+        <div class="row"><span class="k">Vitesse</span><span class="v" id="g-spd">—</span></div>
+        <div class="row"><span class="k">Satellites</span><span class="v" id="g-sat">—</span></div>
+      </div>
+    </div>
+    <div class="panel" id="manual-panel">
+      <div class="ph"><h3>Saisie manuelle</h3></div>
+      <div class="pb">
+        <div class="preview" id="pv"><span class="l">Capteur</span><span class="v" id="pv-v">—</span></div>
+        <div class="pset"><div class="ps n" onclick="preset(0)">Normal</div><div class="ps m" onclick="preset(1)">Modéré</div><div class="ps d" onclick="preset(2)">Dangereux</div></div>
+        <div class="mr"><label>H₂S (ppm) <input type="number" id="n-s1" value="0.65" min="0" max="50" step=".1" oninput="sv('s1')"></label><input type="range" id="r-s1" min="0" max="50" step=".1" value="0.65" oninput="sn('s1')"></div>
+        <input type="hidden" id="n-s2" value="0.65"><input type="hidden" id="r-s2" value="0.65">
+        <input type="hidden" id="n-s3" value="0.65"><input type="hidden" id="r-s3" value="0.65">
+        <input type="hidden" id="n-s4" value="0.65"><input type="hidden" id="r-s4" value="0.65">
+        <div class="mr"><label>Température <b><span id="v-t">30.0</span>°C</b></label><input type="range" id="r-temp" min="20" max="65" step=".5" value="30.0" oninput="document.getElementById('v-t').textContent=(+this.value).toFixed(1)"></div>
+        <div class="mr"><label>Humidité <b><span id="v-h">72</span>%</b></label><input type="range" id="r-hum" min="30" max="95" step="1" value="72" oninput="document.getElementById('v-h').textContent=this.value"></div>
+        <button class="send" onclick="sendManual()">Analyser ces valeurs</button>
+        <div id="m-st" style="text-align:center;font-size:.7rem;color:var(--tx2);margin-top:7px;min-height:14px"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CENTRE -->
+  <div class="col">
+    <div class="gg" id="gauges">
+      <div class="g" id="gg-h2s"><div class="lab">Concentration H2S actuelle</div><div><span class="num" id="v-h2s">&mdash;</span><span class="u">ppm</span></div><div class="track"><div class="fillb" id="f-h2s"></div></div><div class="ref"></div></div>
+      <div class="g"><div class="lab">H₂S prédit</div><div><span class="num" id="v-pred" style="color:var(--pred)">—</span><span class="u">ppm</span></div><div class="track"><div class="fillb" id="f-pred" style="background:var(--pred)"></div></div><div class="ref">LSTM · 50 s</div></div>
+      <div class="g"><div class="lab">Température</div><div><span class="num" id="v-temp" style="color:var(--temp)">—</span><span class="u">°C</span></div><div class="track"><div class="fillb" id="f-temp" style="background:var(--temp)"></div></div><div class="ref">DHT22</div></div>
+      <div class="g"><div class="lab">Humidité</div><div><span class="num" id="v-hum" style="color:var(--hum)">—</span><span class="u">%</span></div><div class="track"><div class="fillb" id="f-hum" style="background:var(--hum)"></div></div><div class="ref">DHT22</div></div>
+      <div class="g"><div class="lab">Dose cumulée</div><div><span class="num" id="v-dose" style="color:var(--dose)">—</span><span class="u">ppm</span></div><div class="track"><div class="fillb" id="f-dose" style="background:var(--dose)"></div></div><div class="ref" id="r-dose">exposition</div></div>
+    </div>
+    <div class="panel" id="fleet-overview-panel">
+      <div class="ph"><h3>Situation de tous les travailleurs</h3><span class="hint" id="fo-hint">Cliquez un casque pour le détail</span></div>
+      <div class="pb"><div class="fo-grid" id="fleet-overview">
+        <div class="fo-empty">Tableau en veille : niveau 0, sécurité normale</div>
+      </div></div>
+    </div>
+    <div class="panel" id="helmet3d-panel">
+      <div class="ph"><h3>Casque 3D — visualisation temps réel</h3>
+        <span class="mtabs" id="h3d-views">
+          <span class="mtab on" data-v="orbit" onclick="setHelmetView('orbit')">Orbit</span>
+          <span class="mtab" data-v="exploded" onclick="setHelmetView('exploded')">Exploded</span>
+          <span class="mtab" data-v="sensors" onclick="setHelmetView('sensors')">Capteur</span>
+          <span class="mtab" data-v="xray" onclick="setHelmetView('xray')">X-ray</span>
+          <span class="mtab" data-v="fleet" onclick="setHelmetView('fleet')">Flotte</span>
+        </span>
+      </div>
+      <div class="pb">
+        <div id="helmet3d-wrap">
+          <div id="helmet3d-canvas"></div>
+          <div id="helmet3d-fallback"><img class="helmet-fallback-img" src="/static/casque_iot.png" alt="Casque IoT"><span>WebGL indisponible - vue 2D</span></div>
+        </div>
+        <div id="helmet3d-legend">
+          <span class="h3d-tag on" id="lg-risk">Risque —</span>
+          <span class="h3d-tag" id="lg-h2s">C_fusion -</span>
+          <span class="h3d-tag" id="lg-dose">Dose —</span>
+          <span class="h3d-tag" id="lg-gps">GPS —</span>
+        </div>
+      </div>
+    </div>
+    <div class="panel" id="map-panel" style="position:relative">
+      <div class="ph"><h3>Mine souterraine KCC Kamoto — localisation</h3>
+        <span class="mtabs"><span class="mtab on" id="t-sat" onclick="ml('sat')">Satellite</span><span class="mtab" id="t-plan" onclick="ml('plan')">Plan</span></span></div>
+      <div class="pb"><div id="map"></div></div>
+    </div>
+  </div>
+
+  <!-- DROITE -->
+  <div class="col">
+    <div class="panel" id="risk-panel" style="position:relative">
+      <div class="ph"><h3>Classification du risque</h3><span class="hint">RF | C_fusion 10/20 ppm</span></div>
+      <div class="pb" id="rf-body">
+        <div class="ring" id="ring"><div class="n" id="rf-n">—</div><div class="l">niveau</div></div>
+        <div class="tag" id="tag">—</div>
+        <div class="conf">Confiance : <b id="rf-conf">—</b></div>
+        <div class="prob"><span class="pl" style="color:var(--ok)">Normal</span><span class="pt"><span class="pf" id="p0" style="background:var(--ok)"></span></span><span class="pp" id="pp0">—</span></div>
+        <div class="prob"><span class="pl" style="color:var(--warn)">Modéré</span><span class="pt"><span class="pf" id="p1" style="background:var(--warn)"></span></span><span class="pp" id="pp1">—</span></div>
+        <div class="prob"><span class="pl" style="color:var(--bad)">Dangereux</span><span class="pt"><span class="pf" id="p2" style="background:var(--bad)"></span></span><span class="pp" id="pp2">—</span></div>
+      </div>
+    </div>
+    <div class="panel" id="prediction-panel">
+      <div class="ph"><h3>Prédiction H₂S</h3><span class="hint">LSTM</span></div>
+      <div class="pb">
+        <div class="lb">
+          <div class="big" id="lstm-v">—</div><div class="cap">ppm prévus · horizon 50 s</div>
+          <div class="bufrow"><span>Buffer</span><span id="buf-n">0 / 60</span></div>
+          <div class="buft"><div class="buff" id="buf-f"></div></div>
+          <div class="lst idle" id="lst">En attente de mesures</div>
+          <button class="lnk" onclick="fillBuffer()">Remplir le buffer (démo)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- COURBE -->
+  <div class="panel chart" id="chart-panel">
+    <div class="ph"><h3>Concentration H₂S — mesurée et prédite</h3><span class="hint">50 dernières mesures</span></div>
+    <div class="pb"><canvas id="chart"></canvas></div>
+  </div>
+  <div class="panel chart" id="workers-panel">
+    <div class="ph"><h3>Travailleurs et casques</h3><span class="hint">Ajouter, activer, désactiver ou supprimer</span></div>
+    <div class="pb">
+      <div class="worker-form">
+        <input id="wk-device" placeholder="ID casque, ex : CASQUE_002">
+        <input id="wk-name" placeholder="Nom du travailleur">
+        <input id="wk-zone" placeholder="Zone / galerie">
+        <select id="wk-status"><option value="active">Actif</option><option value="inactive">Désactivé</option></select>
+        <button class="btn primary" onclick="saveWorker()">Enregistrer</button>
+      </div>
+      <div class="worker-table" id="workers-list"><div class="fleet-empty">Chargement...</div></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- MODAL ESP32 -->
+<div class="modal" id="esp"><div class="mbox">
+  <div class="mh"><h3>Connecter l'ESP32 par WiFi</h3><span class="mc" onclick="closeEsp()">×</span></div>
+  <div class="mb">
+    <div class="pill esp-status" id="esp-st" style="margin-bottom:10px;color:var(--fire);border-color:var(--fire)"><img class="esp-status-helmet" src="/static/casque_iot.png" alt="Casque IoT"> ESP32 non detecte</div>
+    <div class="code" id="esp-detail" style="margin-bottom:12px">Etat: attente du heartbeat ESP32</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+      <button class="btn primary" id="esp-connect" onclick="setEspControl(true)">Connecter ESP32</button>
+      <button class="btn" id="esp-disconnect" onclick="setEspControl(false)">Deconnecter ESP32</button>
+      <button class="btn" onclick="refEsp()">Actualiser</button>
+    </div>
+    <div class="stp"><div class="n">1</div><div class="c">Adresse du serveur (le casque s'y connecte seul) :
+      <div class="url" id="srv-url">http://…</div><span style="font-size:.72rem;color:var(--tx2)">Nom réseau : <b id="srv-mdns">gazmonitor.local</b></span></div></div>
+    <div class="stp"><div class="n">2</div><div class="c">WiFi du casque :
+      <div class="fld" style="margin-top:7px"><label>Réseau (SSID)</label><input id="ws" placeholder="ex : DIL"></div>
+      <div class="fld"><label>Mot de passe</label><input id="wp" placeholder="••••••••"></div></div></div>
+    <div class="stp"><div class="n">3</div><div class="c">Le casque crée un point d'accès <b>GazMonitor-Setup</b> au 1er démarrage : connectez votre téléphone et choisissez le WiFi. Aucun reflashage ensuite.
+      <div class="code" id="esp-cfg">// renseignez les champs</div>
+      <button class="btn" style="margin-top:9px" onclick="copyCfg()">Copier la configuration</button></div></div>
+  </div>
+</div></div>
+
+<script>
+const D={0:{c:'#15a34a',b:'#15a34a',bg:'#15a34a14',l:'NORMAL'},1:{c:'#ca8a04',b:'#ca8a04',bg:'#ca8a0414',l:'MODÉRÉ'},2:{c:'#dc2626',b:'#dc2626',bg:'#dc262614',l:'DANGEREUX'}};
+let liveSource=null, lastTs=0, count=0, fireAck=false, gasSilenced=false;
+let helmet3d=null;
+
+/* CASQUE 3D */
+function initHelmet3D(){
+  const wrap=document.getElementById('helmet3d-canvas');
+  const fb=document.getElementById('helmet3d-fallback');
+  if(!wrap||!window.THREE||!window.Helmet3D){
+    if(fb)fb.classList.add('show');
+    return;
+  }
+  try{
+    helmet3d=new Helmet3D('helmet3d-canvas');
+  }catch(e){
+    console.warn('Helmet3D init:',e);
+    if(fb)fb.classList.add('show');
+  }
+}
+function setHelmetView(v){
+  document.querySelectorAll('#h3d-views .mtab').forEach(t=>t.classList.toggle('on',t.dataset.v===v));
+  if(!helmet3d)return;
+  if(v==='fleet'){
+    helmet3d.setFleetMode(true,fleet);
+  }else{
+    helmet3d.setFleetMode(false);
+    helmet3d.setView(v);
+    if(selectedDevice&&fleet[selectedDevice])helmet3d.update(fleet[selectedDevice].d);
+  }
+}
+function syncHelmet3D(d){
+  if(!helmet3d||!d)return;
+  const fleetView=document.querySelector('#h3d-views .mtab[data-v="fleet"]')?.classList.contains('on');
+  if(fleetView){
+    helmet3d.updateFleet(fleet);
+    return;
+  }
+  helmet3d.update(d);
+  const lvl=d.risk_class??0;
+  document.getElementById('lg-risk').textContent=`Risque ${D[lvl].l}`;
+  document.getElementById('lg-risk').style.borderColor=D[lvl].c;
+  document.getElementById('lg-risk').style.color=D[lvl].c;
+  document.getElementById('lg-h2s').textContent=`C_fusion ${cFusion(d).toFixed(1)} ppm`;
+  document.getElementById('lg-dose').textContent=`Dose ${(d.dose_accumulee||0).toFixed(0)} · ${d.exposure_level||'—'}`;
+  document.getElementById('lg-gps').textContent=d.gps_valid!==false?`GPS ${d.satellites||0} sat`:'GPS acquisition';
+}
+
+/* THEME */
+function toggleTheme(){const c=document.documentElement.getAttribute('data-theme'),n=c==='dark'?'light':'dark';
+  document.documentElement.setAttribute('data-theme',n);document.getElementById('bth').textContent=n==='dark'?'☾':'☀️';localStorage.setItem('th',n);}
+(()=>{const t=localStorage.getItem('th')||'dark';document.documentElement.setAttribute('data-theme',t);document.getElementById('bth').textContent=t==='dark'?'☾':'☀️';})();
+
+/* MAP */
+const KCC=[-10.7181,25.4728];
+const map=L.map('map',{zoomControl:true,attributionControl:false}).setView(KCC,16);
+const sat=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19});
+const plan=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19});
+sat.addTo(map);let curL='sat';
+function ml(t){if(t===curL)return;curL=t;if(t==='sat'){map.removeLayer(plan);sat.addTo(map);}else{map.removeLayer(sat);plan.addTo(map);}
+  document.getElementById('t-sat').classList.toggle('on',t==='sat');document.getElementById('t-plan').classList.toggle('on',t==='plan');}
+L.polygon([[-10.7110,25.4640],[-10.7095,25.4760],[-10.7160,25.4850],[-10.7260,25.4820],[-10.7290,25.4700],[-10.7220,25.4610]],
+  {color:'#c98a16',weight:2,fillColor:'#c98a16',fillOpacity:.1,dashArray:'6,5'}).addTo(map).bindTooltip('Périmètre mine KCC Kamoto',{sticky:true});
+L.circleMarker(KCC,{radius:6,color:'#2f6df0',fillColor:'#2f6df0',fillOpacity:1}).addTo(map).bindTooltip('Puits principal');
+function mkIcon(col,sel){return L.divIcon({html:`<div style="background:${col};width:${sel?22:16}px;height:${sel?22:16}px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 ${sel?16:10}px ${col}"></div>`,className:'',iconSize:[22,22],iconAnchor:[11,11]});}
+const markers={};   // device_id -> L.marker (un par casque)
+function updateMarker(d){
+  if(!d.latitude||!d.longitude)return;
+  const p=[d.latitude,d.longitude],lvl=d.risk_class||0,col=D[lvl].c,sel=(d.device_id===selectedDevice);
+  if(!markers[d.device_id]){markers[d.device_id]=L.marker(p,{icon:mkIcon(col,sel)}).addTo(map)
+      .on('click',()=>selectWorker(d.device_id));}
+  else markers[d.device_id].setLatLng(p).setIcon(mkIcon(col,sel));
+  markers[d.device_id].bindTooltip(`👷 ${d.worker_name||d.device_id} · ${D[lvl].l} · ${cFusion(d).toFixed(1)} ppm`);
+}
+function removeMarker(id){if(markers[id]){map.removeLayer(markers[id]);delete markers[id];}}
+
+/* CHART */
+const MX=50,LB=[],HM=[],HP=[];
+const chart=new Chart(document.getElementById('chart'),{type:'line',data:{labels:LB,datasets:[
+  {label:'H₂S mesuré',data:HM,borderColor:'#0e9ec4',backgroundColor:'#0e9ec420',borderWidth:2,fill:true,pointRadius:0,tension:.35},
+  {label:'H₂S prédit (LSTM)',data:HP,borderColor:'#7c4dd6',borderDash:[6,4],borderWidth:2,fill:false,pointRadius:0,tension:.35,spanGaps:true}]},
+  options:{responsive:true,maintainAspectRatio:false,animation:{duration:250},interaction:{mode:'index',intersect:false},
+   plugins:{legend:{labels:{color:'#9aa7bd',font:{size:11,family:'Inter'},boxWidth:12,usePointStyle:true}}},
+   scales:{x:{grid:{color:'#252e3f55'},ticks:{color:'#5d6a82',maxTicksLimit:8,font:{size:9}}},y:{grid:{color:'#252e3f55'},ticks:{color:'#9aa7bd',font:{size:10}},suggestedMin:0,suggestedMax:30}}}});
+function push(hm,hp){LB.push(new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit',second:'2-digit'}));HM.push(hm);HP.push(hp);if(LB.length>MX){LB.shift();HM.shift();HP.shift();}chart.update('none');}
+
+/* ALARME D'EVACUATION (son reel sound-of-evacuation.mp3) */
+const evac=new Audio('/static/sound-of-evacuation.mp3');
+evac.loop=true; evac.preload='auto'; evac.volume=1.0;
+let evacOn=false, audioReady=false;
+function aud(){ /* deblocage audio par geste utilisateur */
+  try{
+    const p=evac.play();
+    if(p&&p.then){p.then(()=>{audioReady=true;if(!evacOn){evac.pause();evac.currentTime=0;}refreshEvac();}).catch(()=>{});}
+  }catch(e){}
+}
+document.addEventListener('pointerdown',aud,{once:true});
+document.addEventListener('keydown',aud,{once:true});
+function playEvac(){
+  evacOn=true;
+  try{
+    evac.volume=1.0;
+    if(evac.paused)evac.currentTime=0;
+    const p=evac.play();
+    if(p&&p.catch)p.catch(()=>{audioReady=false;});
+  }catch(e){}
+}
+function stopEvac(){
+  evacOn=false;
+  try{ evac.pause(); evac.currentTime=0; }catch(e){}
+}
+// Le son d'evacuation se déclenche en situation dangereuse (gaz DANGEREUX).
+function refreshEvac(){
+  const danger = window._gasDanger && !gasSilenced;
+  if(danger) playEvac(); else stopEvac();
+}
+function gasAlarm(on){ window._gasDanger=on; if(on)gasSilenced=false; refreshEvac(); }
+function silenceAlarm(){gasSilenced=true;window._gasDanger=false;refreshEvac();document.getElementById('gas-banner').classList.remove('show');}
+setInterval(()=>{if(window._gasDanger&&!gasSilenced&&evac.paused)playEvac();},1500);
+
+/* SOCKET + CONNEXION SERVEUR */
+let socket, serverConnected=true;
+function connect(){
+  socket=io(window.location.origin,{transports:['websocket','polling'],reconnectionDelay:2000,autoConnect:true});
+  socket.on('new_data',d=>{ if(serverConnected){lastTs=Date.now();onData(d);} });
+  socket.on('fleet_snapshot',payload=>{
+    if(!serverConnected||!simTimer)return;
+    lastTs=Date.now();
+    applyFleetSnapshot(payload.devices||[]);
+  });
+  socket.on('connect',   ()=>updateConnBtn(true));
+  socket.on('disconnect',()=>updateConnBtn(false));
+  socket.on('esp32_status',d=>updateEspStatus(d));
+  socket.on('worker_changed',ev=>{
+    const id=ev?.device_id||ev?.worker?.device_id;
+    const inactive=ev?.action==='deleted'||ev?.worker?.status==='inactive';
+    if(id&&inactive){delete fleet[id];removeMarker(id);if(selectedDevice===id)selectedDevice=null;renderFleet();renderFleetOverview();if(Object.keys(fleet).length===0)goStandby();}
+    if(document.body.dataset.page==='workers')loadWorkers();
+  });
+  // Synchronisation arret simulation si un autre onglet/client arrete la sim
+  socket.on('sim_cleared',()=>{
+    if(simTimer){clearInterval(simTimer);simTimer=null;}
+    simPhase=0;
+    SIM_ROSTER.forEach(w=>{delete fleet[w.device_id];removeMarker(w.device_id);});
+    if(selectedDevice&&selectedDevice.startsWith('SIM'))selectedDevice=null;
+    renderFleet();if(Object.keys(fleet).length===0)goStandby();
+    const b=document.getElementById('bsim');b.classList.remove('on');b.textContent='Simuler';
+  });
+}
+function updateConnBtn(connected){
+  const b=document.getElementById('bconn'); if(!b)return;
+  if(connected && serverConnected){b.textContent='Connecte';b.style.color='var(--ok)';b.style.borderColor='#15a34a55';}
+  else{b.textContent='Deconnecte';b.style.color='var(--bad)';b.style.borderColor='#dc262655';}
+}
+function toggleServer(){
+  serverConnected=!serverConnected;
+  if(serverConnected){
+    // Reconnexion : rouvre le flux temps reel
+    if(socket){ socket.connect(); } else { connect(); }
+    updateConnBtn(true);
+  } else {
+    // Déconnexion : ferme le flux, dashboard en veille
+    if(socket){ socket.disconnect(); }
+    updateConnBtn(false);
+    goStandby();
+  }
+}
+
+/* SOURCE / VEILLE */
+function setSource(label){liveSource=label;const s=document.getElementById('src');
+  if(label){s.classList.add('live');document.getElementById('src-t').textContent='En direct · '+label;}
+  else{s.classList.add('live');document.getElementById('src-t').textContent='Sécurité normale';}}
+function goStandby(){
+  setSource(null);
+  document.getElementById('w-pill').className='pill on';document.getElementById('w-pill').innerHTML='<span class="led"></span> Sécurité normale';
+  ['v-h2s','v-pred','v-dose'].forEach(id=>{const e=document.getElementById(id);e.textContent='0.00';e.style.color='var(--ok)';});['v-temp','v-hum'].forEach(id=>{const e=document.getElementById(id);e.textContent='0.0';e.style.color='';});
+  ['f-h2s','f-pred','f-temp','f-hum','f-dose'].forEach(id=>document.getElementById(id).style.width='0');
+  document.getElementById('rf-n').textContent='0';document.getElementById('tag').textContent='NORMAL';
+  document.getElementById('tag').style.cssText='border-color:var(--ok);color:var(--ok);background:#15a34a14';
+  document.getElementById('ring').style.cssText='border-color:var(--ok);color:var(--ok)';
+  document.getElementById('rf-conf').textContent='100.0%';[0,1,2].forEach(i=>{document.getElementById('p'+i).style.width=(i===0?'100%':'0');document.getElementById('pp'+i).textContent=(i===0?'100.0%':'0.0%');});
+  document.getElementById('lstm-v').textContent='0.00';document.getElementById('lst').className='lst idle';document.getElementById('lst').textContent='Situation normale — aucun gaz détecté';
+  if(helmet3d) helmet3d.setStandby(true);
+  const fo=document.getElementById('fleet-overview');
+  if(fo)fo.innerHTML='<div class="fo-empty">Tableau en veille : niveau 0, sécurité normale</div>';
+  gasAlarm(false);
+}
+
+/* ===== FLOTTE MULTI-CASQUES ===== */
+const fleet={};                 // device_id -> {d, ts}
+let selectedDevice=null;
+const DEV_TIMEOUT=30000;        // 30 s sans donnees => hors ligne
+
+function cFusion(d){
+  return +(d?.c_fusion_ppm ?? d?.h2s_fusion_ppm ?? d?.h2s_mesure ?? d?.h2s_ppm ?? 0);
+}
+
+function onData(d){
+  if(!d||!d.device_id)return;
+  if(d.device_id.startsWith('SIM')&&!simTimer)return;
+  count++;
+  fleet[d.device_id]={d,ts:Date.now()};
+  const isSim=d.device_id.startsWith('SIM');
+  const src=isSim?'Simulation':(manualFlag?'Saisie manuelle':'ESP32');
+  setSource(src);manualFlag=false;
+  updateMarker(d);
+  if(!selectedDevice||!fleet[selectedDevice])selectedDevice=d.device_id;
+  renderFleet();
+  renderFleetOverview();
+  recomputeAlarm();
+  if(d.device_id===selectedDevice)renderDetail(d);
+  syncFleetVisuals();
+}
+
+/* Mise a jour atomique de toute la flotte (simulation batch) */
+function applyFleetSnapshot(devices){
+  if(!devices||!devices.length)return;
+  const now=Date.now();
+  lastTs=now;
+  devices.forEach(d=>{
+    if(!d||!d.device_id)return;
+    fleet[d.device_id]={d,ts:now};
+    updateMarker(d);
+    count++;
+  });
+  setSource('Simulation');
+  if(!selectedDevice||!fleet[selectedDevice])selectedDevice=devices[0].device_id;
+  renderFleet();
+  renderFleetOverview();
+  recomputeAlarm();
+  fitMapToFleet();
+  syncFleetVisuals();
+  if(fleet[selectedDevice])renderDetail(fleet[selectedDevice].d);
+}
+
+function syncFleetVisuals(){
+  if(!helmet3d)return;
+  const fleetView=document.querySelector('#h3d-views .mtab[data-v="fleet"]')?.classList.contains('on');
+  if(fleetView||simTimer)helmet3d.updateFleet(fleet);
+  else if(selectedDevice&&fleet[selectedDevice])syncHelmet3D(fleet[selectedDevice].d);
+}
+
+function fitMapToFleet(){
+  const pts=[];
+  Object.values(fleet).forEach(f=>{
+    if(f.d.latitude&&f.d.longitude)pts.push([f.d.latitude,f.d.longitude]);
+  });
+  if(pts.length>=2)map.fitBounds(pts,{padding:[40,40],maxZoom:17});
+  else if(pts.length===1)map.setView(pts[0],16);
+}
+
+/* Cartes situation — un panneau par travailleur */
+function renderFleetOverview(){
+  const grid=document.getElementById('fleet-overview');
+  if(!grid)return;
+  const now=Date.now();
+  const ids=simTimer
+    ? SIM_ROSTER.map(w=>w.device_id)
+    : Object.keys(fleet).sort((a,b)=>{
+        const A=fleet[a].d.risk_class||0,B=fleet[b].d.risk_class||0;
+        return B-A||a.localeCompare(b);
+      });
+  if(ids.length===0){
+    grid.innerHTML='<div class="fo-empty">Tableau en veille : niveau 0, sécurité normale</div>';
+    return;
+  }
+  grid.innerHTML='';
+  ids.forEach(id=>{
+    const entry=fleet[id];
+    const on=entry&&(now-entry.ts)<DEV_TIMEOUT;
+    const waiting=simTimer&&!entry;
+    const d=entry?entry.d:{device_id:id,worker_name:SIM_ROSTER.find(w=>w.device_id===id)?.worker_name||id,zone:'-',h2s_mesure:0,c_fusion_ppm:0,risk_class:0};
+    const lvl=d.risk_class??0;
+    const c=waiting?{c:'var(--tx2)',bg:'var(--card2)',l:'…'}:(D[lvl]||D[0]);
+    const card=document.createElement('div');
+    card.className='fo-card'+(id===selectedDevice?' sel':'')+(on||waiting?'':' off');
+    card.onclick=()=>{if(fleet[id])selectWorker(id);};
+    const scen=d.sim_scenario?` · ${d.sim_scenario}`:'';
+    card.innerHTML=`
+      <div class="fo-top">
+        <span class="fo-dot" style="background:${waiting?'var(--accent)':on?c.c:'var(--tx3)'}"></span>
+        <div><div class="fo-name">${d.worker_name||id}</div><div class="fo-zone">${d.zone||'—'}</div></div>
+      </div>
+      <div class="fo-h2s" style="color:${waiting?'var(--accent)':on?c.c:'var(--tx2)'}">${waiting?'...':on?cFusion(d).toFixed(1):'-'}<span style="font-size:.55rem;font-weight:600;color:var(--tx2)"> ppm</span></div>
+      <span class="fo-tag" style="border-color:${c.c};color:${c.c};background:${c.bg}">${waiting?'Chargement…':on?c.l:'HORS LIGNE'}${scen}</span>
+      <div class="fo-meta">
+        <span>Temp ${on?(d.temperature||0).toFixed(0):'—'}°C</span>
+        <span>Dose ${on?(d.dose_accumulee||0).toFixed(0):'—'}</span>
+        <span>${on&&d.prediction_ready?(d.prediction_h2s||0).toFixed(1)+' ppm prév':'—'}</span>
+      </div>`;
+    grid.appendChild(card);
+  });
+  const online=ids.filter(id=>fleet[id]&&(now-fleet[id].ts)<DEV_TIMEOUT).length;
+  const hint=document.getElementById('fo-hint');
+  if(hint)hint.textContent=simTimer?`${online}/${ids.length} en ligne · tous scénarios actifs`:`${online} casque(s) · clic pour détail`;
+}
+
+/* Selection d'un casque dans la liste / sur la carte */
+function selectWorker(id){
+  selectedDevice=id;renderFleet();
+  Object.values(markers).forEach(m=>{});                 // re-style markers
+  Object.keys(fleet).forEach(k=>updateMarker(fleet[k].d));
+  if(fleet[id]){renderDetail(fleet[id].d);
+    renderFleetOverview();
+    syncFleetVisuals();
+    if(fleet[id].d.latitude) map.panTo([fleet[id].d.latitude,fleet[id].d.longitude]);}
+}
+
+/* Rendu de la liste des casques actifs */
+function renderFleet(){
+  const list=document.getElementById('fleet-list');if(!list)return;
+  const now=Date.now();
+  const ids=Object.keys(fleet).sort((a,b)=>{
+    const A=fleet[a].d.risk_class||0,B=fleet[b].d.risk_class||0;
+    return B-A || a.localeCompare(b);});
+  let online=0;
+  list.innerHTML='';
+  if(ids.length===0){list.innerHTML='<div class="fleet-empty" id="fleet-empty">Aucun casque connecté</div>';
+    document.getElementById('fleet-count').textContent='0 en ligne';return;}
+  ids.forEach(id=>{
+    const f=fleet[id],d=f.d,on=(now-f.ts)<DEV_TIMEOUT;if(on)online++;
+    const lvl=d.risk_class||0,c=D[lvl];
+    const it=document.createElement('div');
+    it.className='fleet-it'+(id===selectedDevice?' sel':'')+(on?'':' off');
+    it.onclick=()=>selectWorker(id);
+    it.innerHTML=`<span class="fdot" style="background:${on?c.c:'var(--tx2)'}"></span>
+      <div><div class="fnm">${d.worker_name||id}</div><div class="fzn">${d.zone||''}</div></div>
+      <div class="fppm"><b style="color:${c.c}">${cFusion(d).toFixed(1)}</b><span>ppm · ${c.l}</span></div>`;
+    list.appendChild(it);
+  });
+  document.getElementById('fleet-count').textContent=`${online} en ligne · ${ids.length} total`;
+  renderFleetOverview();
+  syncFleetVisuals();
+}
+
+/* Alarme GLOBALE : declenche si AU MOINS un casque en ligne est dangereux */
+function recomputeAlarm(){
+  const now=Date.now();let danger=null;
+  Object.values(fleet).forEach(f=>{
+    if((now-f.ts)<DEV_TIMEOUT && (f.d.risk_class||0)>=2) danger=danger||f.d;});
+  const gb=document.getElementById('gas-banner');
+  if(danger && !gasSilenced){gb.classList.add('show');
+    document.getElementById('gas-msg').textContent=`Situation dangereuse - ${danger.worker_name||danger.device_id} - C_fusion ${cFusion(danger).toFixed(1)} ppm - Evacuation`;
+    gasAlarm(true);}
+  else if(!danger){gb.classList.remove('show');gasAlarm(false);}
+}
+
+/* Nettoyage : retire les casques hors ligne de la carte + bascule en veille si vide */
+function cleanFleet(){
+  const now=Date.now();let online=0;
+  Object.keys(fleet).forEach(id=>{
+    if((now-fleet[id].ts)>DEV_TIMEOUT){removeMarker(id);}
+    else online++;});
+  renderFleet();
+  if(online===0&&!simTimer)goStandby();
+}
+setInterval(cleanFleet,5000);
+
+/* DATA — rendu detail du casque selectionne */
+function renderDetail(d){
+  const hm=cFusion(d),hp=+(d.prediction_h2s||0),lvl=d.risk_class??0,c=D[lvl];
+  const predLvl=d.pred_risk_class??0,predCfg=D[predLvl]||D[0];
+  document.getElementById('w-name').textContent=d.worker_name||'—';
+  document.getElementById('w-zone').textContent=d.zone||'—';
+  document.getElementById('w-id').textContent=d.device_id||'—';
+  document.getElementById('w-sens').textContent=`${hm.toFixed(1)} ppm`;
+  document.getElementById('w-rssi').textContent=d.wifi_rssi?d.wifi_rssi+' dBm':'—';
+  document.getElementById('w-cnt').textContent=count;
+  const wp=document.getElementById('w-pill');wp.className='pill on';wp.innerHTML='<span class="led"></span> En ligne';
+  if(d.latitude&&d.longitude){
+    document.getElementById('g-lat').textContent=d.latitude.toFixed(6)+'°';document.getElementById('g-lng').textContent=d.longitude.toFixed(6)+'°';}
+  document.getElementById('g-alt').textContent=(d.altitude||0).toFixed(0)+' m';
+  document.getElementById('g-spd').textContent=(d.speed_kmh||0).toFixed(1)+' km/h';
+  document.getElementById('g-sat').textContent=d.satellites||'—';
+  document.getElementById('gps-fix').textContent=d.gps_valid?`Fix · ${d.satellites||0} sat`:'Acquisition…';
+  const hc=hm>=20?'#dc2626':hm>=10?'#ca8a04':'#15a34a';
+  gset('h2s',hm,hc,50);document.getElementById('gg-h2s').style.borderColor=hm>=10?hc:'var(--line)';
+  gset('pred',hp,'#7c4dd6',30);
+  document.getElementById('v-temp').textContent=(d.temperature||0).toFixed(1);document.getElementById('f-temp').style.width=Math.min((d.temperature-20)/45*100,100)+'%';
+  document.getElementById('v-hum').textContent=(d.humidity||0).toFixed(0);document.getElementById('f-hum').style.width=Math.min(d.humidity,100)+'%';
+  const dose=d.dose_accumulee||0;document.getElementById('v-dose').textContent=dose.toFixed(1);document.getElementById('f-dose').style.width=Math.min(dose/500*100,100)+'%';
+  document.getElementById('r-dose').textContent='exposition : '+(d.exposure_level||'—');
+  const ring=document.getElementById('ring'),tag=document.getElementById('tag');
+  ring.style.borderColor=ring.style.color=c.c;document.getElementById('rf-n').textContent=lvl;
+  tag.textContent=c.l;tag.style.cssText=`border-color:${c.b};color:${c.c};background:${c.bg}`;
+  const pr=d.probabilities||{};document.getElementById('rf-conf').textContent=(Math.max(pr[0]||0,pr[1]||0,pr[2]||0)*100).toFixed(1)+'%';
+  [0,1,2].forEach(i=>{const p=(pr[i]||0)*100;document.getElementById('p'+i).style.width=Math.min(p,100)+'%';document.getElementById('pp'+i).textContent=p.toFixed(1)+'%';});
+  document.getElementById('lstm-v').textContent=d.prediction_ready?`${hp.toFixed(2)} ppm · ${d.pred_risk_label||predCfg.l}`:'—';
+  const bf=d.buffer_fill||0,bs=d.buffer_size||20;document.getElementById('buf-n').textContent=`${bf} / ${bs}`;document.getElementById('buf-f').style.width=(bf/bs*100)+'%';
+  const ls=document.getElementById('lst');
+  if(lvl===0){ls.className='lst idle';ls.textContent='Environnement sain — prédiction inactive';}
+  else if(!d.prediction_ready){ls.className='lst wait';ls.textContent=`Accumulation ${bf}/${bs}…`;}
+  else{ls.className='lst ok';ls.textContent=`Prédiction active · risque futur ${d.pred_risk_label||predCfg.l} par RF`;}
+  push(hm,d.prediction_ready?hp:null);
+  syncHelmet3D(d);
+  // (l'alarme est geree globalement par recomputeAlarm sur l'ensemble de la flotte)
+}
+function gset(id,v,col,mx){
+  document.getElementById('v-'+id).textContent=v.toFixed(2);
+  document.getElementById('v-'+id).style.color=col;
+  // Barre toujours visible meme pour de tres faibles valeurs (min 3% si v>0)
+  const pct=v>0?Math.max(Math.min(v/mx*100,100),3):0;
+  document.getElementById('f-'+id).style.width=pct+'%';
+  document.getElementById('f-'+id).style.background=col;
+}
+
+/* MANUEL */
+let manualFlag=false;
+function _spreadS1(){}
+function sn(g){document.getElementById('n-'+g).value=document.getElementById('r-'+g).value;pv();}
+function sv(g){document.getElementById('r-'+g).value=document.getElementById('n-'+g).value;pv();}
+function preset(c){fetch('/api/preset?class='+c).then(r=>r.json()).then(d=>{const avg=+(d.h2s_ppm??d.sensor1??0).toFixed(2);document.getElementById('r-s1').value=avg;document.getElementById('n-s1').value=avg;
+  document.getElementById('r-temp').value=d.temperature;document.getElementById('v-t').textContent=(+d.temperature).toFixed(1);
+  document.getElementById('r-hum').value=d.humidity;document.getElementById('v-h').textContent=Math.round(d.humidity);_spreadS1();pv();});}
+function pv(){const m=+document.getElementById('r-s1').value;const lv=m>=20?2:m>=10?1:0,c=D[lv];
+  const b=document.getElementById('pv');b.style.borderColor=c.c;b.style.background=c.bg;const v=document.getElementById('pv-v');v.textContent=`${m.toFixed(1)} ppm → ${c.l}`;v.style.color=c.c;}
+function sendManual(){
+  aud();
+  manualFlag=true;
+  // Forcer la selection du casque manuel pour que renderDetail() soit appele
+  selectedDevice='CASQUE_001';
+  const st=document.getElementById('m-st');st.textContent='Analyse…';
+  fetch('/api/sensor_data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    device_id:'CASQUE_001',worker_name:'Technicien DANNY',zone:'Mine Kamoto - KCC Kolwezi',
+    h2s_ppm:+r('s1'),sensor1:+r('s1'),sensor2:+r('s1'),sensor3:+r('s1'),sensor4:+r('s1'),
+    sensor1_ppm:+r('s1'),sensor2_ppm:+r('s1'),sensor3_ppm:+r('s1'),sensor4_ppm:+r('s1'),
+    temperature:+document.getElementById('r-temp').value,humidity:+document.getElementById('r-hum').value,
+    wifi_rssi:-65,gps_valid:true,
+    latitude:-10.7181+Math.random()*.001-.0005,longitude:25.4728+Math.random()*.001-.0005,
+    altitude:1440,speed_kmh:0,satellites:8,hdop:1.2})})
+    .then(r=>r.json()).then(d=>{st.textContent='✓ '+d.risk_label;st.style.color=D[d.risk_class].c;setTimeout(()=>st.textContent='',2500);})
+    .catch(()=>{st.textContent='Erreur';st.style.color='var(--bad)';});
+}
+function r(g){return document.getElementById('r-'+g).value;}
+
+/* REMPLIR BUFFER LSTM (envoie 60 mesures classe MODERE) */
+function fillBuffer(){
+  aud(); let i=0;
+  const go=()=>{
+    fetch('/api/preset?class=1').then(x=>x.json()).then(p=>{
+      manualFlag=true;
+      const payload=Object.assign({},p,{h2s_ppm:p.h2s_ppm??p.sensor1,device_id:'CASQUE_001',worker_name:'Technicien DANNY',
+        zone:'Mine Kamoto - KCC Kolwezi',wifi_rssi:-62,gps_valid:true,
+        latitude:-10.7181,longitude:25.4728,altitude:1440,speed_kmh:0.3,satellites:9,hdop:1.1});
+      return fetch('/api/sensor_data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    }).then(()=>{ if(++i<60) setTimeout(go,250); });
+  };
+  go();
+}
+
+/* SIMULATION MULTI-CASQUES : plusieurs travailleurs simultanes */
+let simTimer=null, simPhase=0, _simBusy=false, _simErrors=0;
+const SIM_ROSTER=[
+  {device_id:'SIM_001',worker_name:'Technicien DANNY',  zone:'Galerie Nord — niveau -120 m'},
+  {device_id:'SIM_002',worker_name:'Foreur MUKENDI',    zone:'Galerie Est — niveau -90 m'},
+  {device_id:'SIM_003',worker_name:'Boutefeu KALALA',   zone:'Puits principal — niveau -150 m'},
+  {device_id:'SIM_004',worker_name:'Géomètre TSHALA',   zone:'Galerie Sud — niveau -60 m'},
+];
+// Scenarios geres cote serveur via /api/simulate_fleet
+
+/* Arret propre : retire les casques SIM immediatement de la flotte et de la carte */
+function _simStop(){
+  if(simTimer){clearInterval(simTimer);simTimer=null;}
+  simPhase=0;
+  _simBusy=false;
+  _simErrors=0;
+  SIM_ROSTER.forEach(w=>{delete fleet[w.device_id];removeMarker(w.device_id);});
+  if(selectedDevice&&selectedDevice.startsWith('SIM'))selectedDevice=null;
+  renderFleet();
+  renderFleetOverview();
+  if(Object.keys(fleet).length===0)goStandby();
+  fetch('/api/sim_clear',{method:'POST'}).catch(()=>{});
+  const b=document.getElementById('bsim');
+  b.classList.remove('on');b.textContent='Simuler';
+  recomputeAlarm();
+  if(helmet3d&&!document.querySelector('#h3d-views .mtab[data-v="fleet"]')?.classList.contains('on'))
+    helmet3d.setStandby(true);
+}
+
+async function simTick(){
+  if(_simBusy||!simTimer)return;
+  _simBusy=true;
+  const b=document.getElementById('bsim');
+  const scen=document.getElementById('scen').value;
+  try{
+    const res=await fetch('/api/simulate_fleet',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({scenario:scen,phase:simPhase,roster:SIM_ROSTER}),
+    });
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok||data.status==='error'||!data.devices?.length)
+      throw new Error(data.message||('HTTP '+res.status));
+    applyFleetSnapshot(data.devices);
+    _simErrors=0;
+    simPhase++;
+    if(b&&simTimer)b.textContent='Arrêter';
+  }catch(e){
+    _simErrors++;
+    console.warn('Simulation flotte:',e);
+    if(b&&simTimer)b.textContent=_simErrors>=3?'Erreur sim':'Réessai…';
+    if(_simErrors>=5){_simStop();if(b){b.textContent='Simuler';alert('Simulation interrompue : '+e.message);}}
+  }finally{
+    _simBusy=false;
+  }
+}
+
+function toggleSim(){
+  if(simTimer){_simStop();return;}
+  aud();
+  if(!helmet3d)initHelmet3D();
+  simPhase=0;
+  _simErrors=0;
+  selectedDevice=SIM_ROSTER[0].device_id;
+  const b=document.getElementById('bsim');
+  b.classList.add('on');b.textContent='Démarrage…';
+  setHelmetView('fleet');
+  lastTs=Date.now();
+  setSource('Simulation');
+  renderFleetOverview();
+  simTimer=setInterval(simTick,2000);
+  simTick();
+}
+
+
+/* EXPORT CSV (telechargement fiable via lien temporaire) */
+function download(url){
+  const a=document.createElement('a');
+  a.href=url; a.style.display='none';
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>document.body.removeChild(a),1000);
+}
+function exportAll(){ download('/api/history/export_all'); }   // toutes les mesures
+function exportToday(){
+  const d=new Date().toLocaleDateString('en-CA');  // AAAA-MM-JJ heure locale
+  download('/api/history/export?date='+d);
+}
+
+/* MODAL ESP32 */
+let espStatusCache=null;
+function openEsp(){document.getElementById('esp').classList.add('show');refEsp();}
+function closeEsp(){document.getElementById('esp').classList.remove('show');}
+function espVisualState(d){
+  if(d&&d.online&&d.desired_enabled)return {color:'var(--ok)',border:'#15a34a55',text:'ESP32 connecte',led:'var(--ok)'};
+  if(d&&d.online&&!d.desired_enabled)return {color:'var(--warn)',border:'#ca8a0455',text:'ESP32 connecte - transmission suspendue',led:'var(--warn)'};
+  if(d&&!d.desired_enabled)return {color:'var(--bad)',border:'#dc262655',text:'ESP32 deconnecte par dashboard',led:'var(--bad)'};
+  return {color:'var(--fire)',border:'#ea580c66',text:'ESP32 non detecte',led:'var(--fire)'};
+}
+function updateEspStatus(d){
+  if(!d)return;
+  espStatusCache=d;
+  const v=espVisualState(d);
+  const mini=document.getElementById('esp-mini');
+  const miniText=document.getElementById('esp-mini-t');
+  if(mini&&miniText){mini.style.color=v.color;mini.style.borderColor=v.border;const mi=mini.querySelector('.esp-mini-icon');if(mi)mi.style.borderColor=v.led;miniText.textContent=v.text;}
+  const s=document.getElementById('esp-st');
+  if(s){s.style.color=v.color;s.style.borderColor=v.border;s.innerHTML=`<img class="esp-status-helmet" src="/static/casque_iot.png" alt="Casque IoT"> ${v.text}`;}
+  const detail=document.getElementById('esp-detail');
+  if(detail){
+    const age=d.age_s==null?'jamais':`${d.age_s}s`;
+    const rssi=d.wifi_rssi==null?'?':`${d.wifi_rssi} dBm`;
+    const ip=d.ip_address||d.last_ip||'non connu';
+    detail.textContent=`Device: ${d.device_id||'CASQUE_001'} | IP ESP32: ${ip} | RSSI: ${rssi} | Dernier signal: ${age} | Mode: ${d.desired_enabled?'actif':'suspendu'}`;
+  }
+  const bc=document.getElementById('esp-connect'), bd=document.getElementById('esp-disconnect');
+  if(bc)bc.disabled=!!d.desired_enabled;
+  if(bd)bd.disabled=!d.desired_enabled;
+}
+async function refEsp(){
+  try{
+    const [rs,ri]=await Promise.all([fetch('/api/esp32/status'),fetch('/api/server_info')]);
+    const d=await rs.json();
+    const i=await ri.json().catch(()=>({}));
+    const merged={...d,server_ip:d.server_ip||i.ip,port:d.port||i.port,api_url:d.api_url||i.api_url,mdns:i.mdns||'gazmonitor.local'};
+    document.getElementById('srv-url').textContent=`http://${merged.server_ip}:${merged.port}`;
+    document.getElementById('srv-mdns').textContent=merged.mdns;
+    updateEspStatus(merged);
+    cfg(merged.port);
+  }catch(e){updateEspStatus({online:false,desired_enabled:true,label:'ESP32 non detecte'});}
+}
+async function setEspControl(enabled){
+  try{
+    const r=await fetch('/api/esp32/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled})});
+    const d=await r.json();
+    if(d.esp32)updateEspStatus(d.esp32);
+    setTimeout(refEsp,700);
+  }catch(e){alert('Commande ESP32 impossible: serveur inaccessible');}
+}
+function cfg(port){const ss=document.getElementById('ws').value||'VOTRE_WIFI',pp=document.getElementById('wp').value||'MOT_DE_PASSE';
+  document.getElementById('esp-cfg').textContent=`const char* WIFI_SSID = "${ss}";\nconst char* WIFI_PASSWORD = "${pp}";\nconst char* SERVER_IP = "10.67.107.74";\nconst int SERVER_PORT = ${port||8080};\nconst char* SENSOR_PATH = "/api/sensor_data";`;}
+document.getElementById('ws').addEventListener('input',()=>cfg());document.getElementById('wp').addEventListener('input',()=>cfg());
+function copyCfg(){navigator.clipboard.writeText(document.getElementById('esp-cfg').textContent);event.target.textContent='Copie';setTimeout(()=>event.target.textContent='Copier la configuration',1800);}
+setInterval(refEsp,3000);
+
+
+/* NAVIGATION INTERNE */
+function showPage(page){
+  document.body.dataset.page=page;
+  document.querySelectorAll('.navbtn').forEach(b=>b.classList.toggle('on',b.dataset.page===page));
+  document.getElementById('sim-tools').style.display=page==='simulation'?'flex':'none';
+  if(page==='visual'&&!helmet3d)initHelmet3D();
+  if(page==='map')setTimeout(()=>map.invalidateSize(),150);
+  if(page==='workers')loadWorkers();
+}
+
+/* GESTION TRAVAILLEURS / CASQUES */
+function workerStatusLabel(s){return s==='active'?'Actif':'Désactivé';}
+async function loadWorkers(){
+  const box=document.getElementById('workers-list'); if(!box)return;
+  box.innerHTML='<div class="fleet-empty">Chargement...</div>';
+  try{
+    const r=await fetch('/api/workers');
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const rows=await r.json();
+    if(!rows.length){box.innerHTML='<div class="fleet-empty">Aucun travailleur enregistré</div>';return;}
+    box.innerHTML='';
+    rows.forEach(w=>{
+      const active=w.status!=='inactive';
+      const row=document.createElement('div');
+      row.className='worker-row';
+      const info=document.createElement('div');
+      info.innerHTML=`<div class="worker-main"></div><div class="worker-sub"></div>`;
+      info.querySelector('.worker-main').textContent=w.worker_name||'Operateur';
+      info.querySelector('.worker-sub').textContent=w.device_id||'';
+      const zone=document.createElement('div');zone.className='worker-sub';zone.textContent=w.zone||'Zone A';
+      const badge=document.createElement('span');badge.className='status-badge '+(active?'active':'inactive');badge.textContent=workerStatusLabel(active?'active':'inactive');
+      const actions=document.createElement('div');actions.className='mini-actions';
+      const edit=document.createElement('button');edit.textContent='Modifier';edit.addEventListener('click',()=>editWorker(w.device_id,w.worker_name||'',w.zone||'',active?'active':'inactive'));
+      const tog=document.createElement('button');tog.textContent=active?'Désactiver':'Activer';tog.addEventListener('click',()=>toggleWorker(w.device_id,active?'inactive':'active'));
+      const del=document.createElement('button');del.textContent='Supprimer';del.className='danger';del.addEventListener('click',()=>deleteWorker(w.device_id));
+      actions.append(edit,tog,del);
+      row.append(info,zone,badge,actions);
+      box.appendChild(row);
+    });
+  }catch(e){box.innerHTML='<div class="fleet-empty">Erreur de chargement des travailleurs</div>';}
+}
+function editWorker(device,name,zone,status){
+  document.getElementById('wk-device').value=device;
+  document.getElementById('wk-name').value=name;
+  document.getElementById('wk-zone').value=zone;
+  document.getElementById('wk-status').value=status;
+}
+async function saveWorker(){
+  const payload={device_id:document.getElementById('wk-device').value.trim(),worker_name:document.getElementById('wk-name').value.trim(),zone:document.getElementById('wk-zone').value.trim(),status:document.getElementById('wk-status').value};
+  if(!payload.device_id){alert('ID casque requis');return;}
+  const r=await fetch('/api/workers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  if(!r.ok){const d=await r.json().catch(()=>({}));alert(d.error||'Enregistrement impossible');return;}
+  ['wk-device','wk-name','wk-zone'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('wk-status').value='active';
+  loadWorkers();
+}
+async function toggleWorker(device,status){
+  const r=await fetch('/api/workers/'+encodeURIComponent(device),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});
+  if(!r.ok){const d=await r.json().catch(()=>({}));alert(d.error||'Modification impossible');return;}
+  if(status==='inactive'){delete fleet[device];removeMarker(device);renderFleet();renderFleetOverview();if(selectedDevice===device)selectedDevice=null;if(Object.keys(fleet).length===0)goStandby();}
+  loadWorkers();
+}
+async function deleteWorker(device){
+  if(!confirm('Supprimer ce travailleur/casque ?'))return;
+  const r=await fetch('/api/workers/'+encodeURIComponent(device),{method:'DELETE'});
+  if(!r.ok){const d=await r.json().catch(()=>({}));alert(d.error||'Suppression impossible');return;}
+  delete fleet[device];removeMarker(device);renderFleet();renderFleetOverview();if(selectedDevice===device)selectedDevice=null;if(Object.keys(fleet).length===0)goStandby();
+  loadWorkers();
+}
+
+/* HORLOGE + VEILLE auto */
+setInterval(()=>document.getElementById('clock').textContent=new Date().toLocaleString('fr-FR'),1000);
+setInterval(()=>{
+  if(simTimer)return;
+  if(liveSource&&Date.now()-lastTs>12000)goStandby();
+},2000);
+
+connect();refEsp();pv();goStandby();showPage('surveillance');
+</script>
+</body>
+</html>
+

@@ -1,0 +1,15 @@
+﻿modele,metrique,valeur
+Random Forest,ROC AUC Normal,1.0
+Random Forest,ROC AUC Modere,0.9999999949962812
+Random Forest,ROC AUC Dangereux,1.0
+Random Forest,F1 Normal,1.0
+Random Forest,F1 Modere,0.9998825601879036
+Random Forest,F1 Dangereux,0.9997264021887824
+Random Forest,F1 macro,0.999869654125562
+Random Forest,F1 weighted,0.9999898101282904
+LSTM,R2 test,-22.359673660750524
+LSTM,MAE ppm,25.95444286117043
+LSTM,RMSE ppm,26.3496257042526
+LSTM officiel,R2 officiel metadata,0.18585842847824097
+LSTM officiel,MAE officiel ppm,2.2625532150268555
+LSTM officiel,RMSE officiel ppm,4.934544898231359

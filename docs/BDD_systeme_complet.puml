@@ -1,0 +1,465 @@
+@startuml
+
+title
+  Diagramme de Definition de Blocs SysML (BDD)
+  Systeme GazMonitor Pro - Casque Intelligent H2S/CO
+end title
+
+skinparam defaultFontName Arial
+skinparam defaultFontSize 10
+skinparam backgroundColor #0d1b2e
+skinparam class {
+  BackgroundColor #0f2a42
+  BorderColor #2563eb
+  FontColor #e2e8f0
+  HeaderBackgroundColor #1e3a5f
+  StereotypeFontColor #93c5fd
+  AttributeFontColor #cbd5e1
+  ArrowColor #64b5f6
+}
+skinparam note {
+  BackgroundColor #1e3a5f
+  BorderColor #3b82f6
+  FontColor #93c5fd
+  FontSize 9
+}
+
+' ===================================================
+'  BLOC RACINE DU SYSTEME
+' ===================================================
+class "SYS : GazMonitor Pro" <<block>> {
+  .. valeurs ..
+  version        = "2.0"
+  zone           = "Gecamines, Lubumbashi RDC"
+  norme          = "NIOSH / ACGIH / EN 397"
+  acquisition_s  = 5
+  .. operations ..
+  demarrer()
+  arreter()
+  configurerZone(lat, lng)
+}
+
+' ===================================================
+'  BLOC : CASQUE INTELLIGENT
+' ===================================================
+class "CASQUE : CasqueIntelligent" <<block>> {
+  .. valeurs ..
+  device_id      : String
+  worker_name    : String
+  zone           : String
+  esp32_ip       : String
+  wifi_rssi      : int
+  exposure_time  : int
+  .. operations ..
+  initialiser()
+  acquerir()
+  envoyerPayload()
+  afficherOLED()
+  declencherAlerteLocale()
+}
+
+' ===================================================
+'  BLOC : ESP32 (Microcontroleur)
+' ===================================================
+class "MCU : ESP32_WROOM32" <<block>> {
+  .. valeurs ..
+  cpu            = "Xtensa LX6  240 MHz dual-core"
+  ram_kb         = 520
+  flash_mb       = 4
+  wifi           = "802.11 b/g/n 2.4 GHz"
+  bluetooth      = "BT 4.2 / BLE"
+  adc_bits       = 12
+  .. ports ..
+  GPIO34         : AnalogIn    -- MQ136
+  GPIO35         : AnalogIn    -- MQ7
+  GPIO4          : DigitalIO   -- DHT22
+  GPIO16         : UART2_RX    -- GPS
+  GPIO17         : UART2_TX    -- GPS
+  GPIO21         : I2C_SDA     -- OLED
+  GPIO22         : I2C_SCL     -- OLED
+  GPIO25         : DigitalOut  -- Buzzer
+  GPIO26         : DigitalOut  -- LED WS2812B
+  .. operations ..
+  lireADC(pin) : float
+  envoyerJSON(payload) : bool
+  stockerSPIFFS(data)
+  watchdog(timeout_s)
+}
+
+' ===================================================
+'  BLOC : CAPTEUR H2S
+' ===================================================
+class "SENS_H2S : MQ136" <<block>> {
+  .. valeurs ..
+  gaz_cible      = "H2S - Sulfure d hydrogene"
+  plage_ppm      = "0 - 100 ppm"
+  tension_chauffe = "5 V"
+  Rload          = "10 kOhm"
+  sortie         = "Analogique  ADC GPIO34"
+  TWA_ppm        = 1
+  STEL_ppm       = 5
+  IDLH_ppm       = 50
+  .. operations ..
+  lireConcentration() : float
+  convertirTension(Vout) : float
+}
+
+' ===================================================
+'  BLOC : CAPTEUR CO
+' ===================================================
+class "SENS_CO : MQ7" <<block>> {
+  .. valeurs ..
+  gaz_cible      = "CO - Monoxyde de carbone"
+  plage_ppm      = "0 - 1000 ppm"
+  cycle_chauffe  = "60s/5V puis 90s/1.4V"
+  sortie         = "Analogique  ADC GPIO35"
+  TWA_ppm        = 25
+  STEL_ppm       = 100
+  IDLH_ppm       = 1200
+  .. operations ..
+  lireConcentration() : float
+  gererCycleChauffe()
+}
+
+' ===================================================
+'  BLOC : CAPTEUR TEMPERATURE / HUMIDITE
+' ===================================================
+class "SENS_TH : DHT22" <<block>> {
+  .. valeurs ..
+  plage_temp     = "-40 a +80 degC  +/- 0.5"
+  plage_hum      = "0 a 100%  +/- 2"
+  protocole      = "1-Wire  GPIO4"
+  periode_min_s  = 2
+  .. operations ..
+  lireTemperature() : float
+  lireHumidite() : float
+}
+
+' ===================================================
+'  BLOC : GPS
+' ===================================================
+class "GPS : NEO6M" <<block>> {
+  .. valeurs ..
+  protocole      = "UART2  9600 baud"
+  GPIO_RX        = "GPIO16"
+  GPIO_TX        = "GPIO17"
+  frequence_Hz   = 1
+  sensibilite_dBm = -161
+  .. operations ..
+  lireNMEA() : String
+  getPosition() : (lat, lng, alt)
+  getVitesse() : float
+  getHDOP() : float
+  getNbSatellites() : int
+}
+
+' ===================================================
+'  BLOC : AFFICHAGE LOCAL OLED
+' ===================================================
+class "DISP : OLED_SSD1306" <<block>> {
+  .. valeurs ..
+  resolution     = "128 x 64 px  0.96 pouces"
+  protocole      = "I2C  SDA:GPIO21  SCL:GPIO22"
+  adresse_i2c    = "0x3C"
+  .. operations ..
+  afficherGaz(h2s, co)
+  afficherDanger(niveau)
+  afficherGPS(lat, lng, fix)
+  afficherMeteo(temp, hum)
+}
+
+' ===================================================
+'  BLOC : ALERTE SONORE
+' ===================================================
+class "ALERT_SON : BuzzerI2S" <<block>> {
+  .. valeurs ..
+  buzzer_dB      = ">= 85 dB"
+  GPIO_buzzer    = "GPIO25  NPN transistor"
+  ampli          = "MAX98357A  I2S"
+  fichier_son    = "sound-of-evacuation.mp3"
+  .. operations ..
+  declencher(niveau)
+  stopper()
+  jouerEvacuation()
+}
+
+' ===================================================
+'  BLOC : ALERTE VISUELLE LED
+' ===================================================
+class "ALERT_LED : WS2812B" <<block>> {
+  .. valeurs ..
+  nb_leds        = 6
+  GPIO           = "GPIO26"
+  tension        = "5V"
+  couleurs       = "Normal:vert | Moyen:jaune | Danger:orange | Critique:rouge"
+  .. operations ..
+  setCouleur(niveau)
+  clignoter(freq_hz)
+  eteindre()
+}
+
+' ===================================================
+'  BLOC : ALIMENTATION
+' ===================================================
+class "PWR : AlimentationLiPo" <<block>> {
+  .. valeurs ..
+  batterie       = "LiPo 3.7V  5000 mAh"
+  autonomie_h    = ">= 8"
+  chargeur       = "TP4056 + DW01A  USB-C 5V/2A"
+  regulateur_3v3 = "AMS1117"
+  boost_5v       = "MT3608  pour MQ136 et MQ7"
+  .. operations ..
+  getNiveauBatterie() : float
+  isEnCharge() : bool
+}
+
+' ===================================================
+'  BLOC : SERVEUR CENTRAL
+' ===================================================
+class "SRV : ServeurCentral" <<block>> {
+  .. valeurs ..
+  host           = "0.0.0.0"
+  port           = 5000
+  framework      = "Flask 3.1  +  SocketIO 5.6"
+  langage        = "Python 3.10"
+  os             = "Windows / Linux"
+  .. operations ..
+  recevoirPayload(json) : dict
+  diffuserWebSocket(data)
+  servirDashboard() : HTML
+  getMeteo() : dict
+}
+
+' ===================================================
+'  BLOC : BASE DE DONNEES
+' ===================================================
+class "DB : SQLiteDatabase" <<block>> {
+  .. valeurs ..
+  moteur         = "SQLite 3"
+  fichier        = "gas_monitoring.db"
+  tables         = "measurements | alerts | predictions"
+  index          = "timestamp | device_id | danger_level"
+  .. operations ..
+  insererMesure(record) : int
+  insererAlerte(mid, type, level)
+  insererPrediction(mid, step, h2s, co)
+  getMesuresRecentes(limit) : DataFrame
+  getStats() : dict
+}
+
+' ===================================================
+'  BLOC : ANALYSEUR TEMPS REEL
+' ===================================================
+class "ANA : RealTimeAnalyzer" <<block>> {
+  .. valeurs ..
+  buffer_size    = 1000
+  is_ready       : bool
+  .. operations ..
+  initialiser()
+  traiterMesure(raw) : dict
+  calculerPhysique(data) : dict
+  getStats() : dict
+}
+
+' ===================================================
+'  BLOC : MODELE RANDOM FOREST
+' ===================================================
+class "ML_RF : RandomForestClassifier" <<block>> {
+  .. valeurs ..
+  n_estimators   = 200
+  max_depth      = 15
+  min_samples    = 5
+  n_features     = 20
+  classes        = "0:Normal | 1:Moyen | 2:Dangereux | 3:Critique"
+  is_fitted      : bool
+  .. operations ..
+  classifier(features) : (label, proba)
+  train(dataframe)
+  sauvegarder(path)
+  charger(path)
+}
+
+' ===================================================
+'  BLOC : MODELE LSTM
+' ===================================================
+class "ML_LSTM : LSTMPredictor" <<block>> {
+  .. valeurs ..
+  lookback       = 20
+  predict_steps  = 10
+  horizon_s      = 50
+  units_1        = 128
+  units_2        = 64
+  dropout        = 0.2
+  is_fitted      : bool
+  .. operations ..
+  predire(sequence) : (pred_h2s, pred_co)
+  train(dataframe)
+  sauvegarder(path)
+  charger(path)
+}
+
+' ===================================================
+'  BLOC : CALCULATEUR PHYSIQUE
+' ===================================================
+class "PHY : PhysicalCalculator" <<block>> {
+  .. valeurs ..
+  dt_s           = 5
+  .. operations ..
+  calcDose(historique) : (h2s_dose, co_dose)
+  calcDerivee(C_prev, C_curr) : float
+  calcTauxCroissance(C_prev, C_curr) : float
+  calcHazardIndex(h2s, co) : float
+  calcRollMean(buffer, window) : float
+}
+
+' ===================================================
+'  BLOC : SYSTEME D ALERTES
+' ===================================================
+class "ALR : AlertSystem" <<block>> {
+  .. valeurs ..
+  seuils_h2s     = "TWA:1 STEL:5 IDLH:50"
+  seuils_co      = "TWA:25 STEL:100 IDLH:1200"
+  horizon_pred   = 5
+  .. operations ..
+  evaluer(mesure, prediction) : dict
+  alerteSeuil(h2s, co) : list
+  alertePredictive(pred_h2s, pred_co) : list
+  alerteDose(dose_h2s, dose_co) : list
+  alerteDerivee(dh2s, dco) : list
+}
+
+' ===================================================
+'  BLOC : SERVICE METEO
+' ===================================================
+class "WX : WeatherService" <<block>> {
+  .. valeurs ..
+  lat            = -11.6876
+  lng            = 27.5026
+  source         = "Open-Meteo API"
+  cache_ttl_s    = 600
+  .. operations ..
+  fetchMeteo() : bool
+  getMeteo() : dict
+  getTemperature() : float
+  getHumidite() : float
+  demarrerRefreshAuto(interval_s)
+}
+
+' ===================================================
+'  BLOC : DASHBOARD WEB
+' ===================================================
+class "UI : DashboardWeb" <<block>> {
+  .. valeurs ..
+  url            = "http://localhost:5000"
+  framework_js   = "Vanilla JS + Chart.js 4.4 + Leaflet 1.9"
+  carte_centre   = "Lubumbashi  -11.6876  27.5026"
+  theme          = "Dark"
+  .. operations ..
+  afficherJauges(h2s, co, temp, hum)
+  mettreAJourCarte(lat, lng)
+  afficherGraphiques(historique)
+  afficherAlertes(alertes)
+  afficherMeteo(wx)
+  connecterWebSocket(url)
+}
+
+' ===================================================
+'  BLOC : SERVICE EXTERNE
+' ===================================================
+class "EXT : OpenMeteoAPI" <<block>> {
+  .. valeurs ..
+  url            = "api.open-meteo.com/v1/forecast"
+  gratuit        = true
+  cle_api        = "aucune"
+  parametres     = "temperature_2m | relative_humidity_2m"
+  periode_min_s  = 60
+  .. operations ..
+  getCurrentWeather(lat, lng) : JSON
+}
+
+' ===================================================
+'  COMPOSITION : SYS -> blocs principaux
+' ===================================================
+"SYS : GazMonitor Pro" *-- "CASQUE : CasqueIntelligent"   : "1..* casques"
+"SYS : GazMonitor Pro" *-- "SRV : ServeurCentral"         : "1 serveur"
+"SYS : GazMonitor Pro" *-- "UI : DashboardWeb"            : "1 dashboard"
+"SYS : GazMonitor Pro" o-- "EXT : OpenMeteoAPI"           : "1 <<external>>"
+
+' ===================================================
+'  COMPOSITION : CASQUE -> composants
+' ===================================================
+"CASQUE : CasqueIntelligent" *-- "MCU : ESP32_WROOM32"    : "1 mcu"
+"CASQUE : CasqueIntelligent" *-- "SENS_H2S : MQ136"       : "1 capteurH2S"
+"CASQUE : CasqueIntelligent" *-- "SENS_CO : MQ7"          : "1 capteurCO"
+"CASQUE : CasqueIntelligent" *-- "SENS_TH : DHT22"        : "1 capteurTH"
+"CASQUE : CasqueIntelligent" *-- "GPS : NEO6M"            : "1 gps"
+"CASQUE : CasqueIntelligent" *-- "DISP : OLED_SSD1306"    : "1 affichage"
+"CASQUE : CasqueIntelligent" *-- "ALERT_SON : BuzzerI2S"  : "1 alerteSon"
+"CASQUE : CasqueIntelligent" *-- "ALERT_LED : WS2812B"    : "1 alerteLED"
+"CASQUE : CasqueIntelligent" *-- "PWR : AlimentationLiPo" : "1 alimentation"
+
+' ===================================================
+'  COMPOSITION : SERVEUR -> sous-systemes
+' ===================================================
+"SRV : ServeurCentral" *-- "ANA : RealTimeAnalyzer"       : "1 analyseur"
+"SRV : ServeurCentral" *-- "DB : SQLiteDatabase"          : "1 base"
+"SRV : ServeurCentral" *-- "ALR : AlertSystem"            : "1 alertes"
+"SRV : ServeurCentral" *-- "WX : WeatherService"          : "1 meteo"
+
+' ===================================================
+'  COMPOSITION : ANALYSEUR -> modeles ML
+' ===================================================
+"ANA : RealTimeAnalyzer" *-- "ML_RF : RandomForestClassifier" : "1 rf_model"
+"ANA : RealTimeAnalyzer" *-- "ML_LSTM : LSTMPredictor"        : "1 lstm_model"
+"ANA : RealTimeAnalyzer" *-- "PHY : PhysicalCalculator"       : "1 calculateur"
+
+' ===================================================
+'  ASSOCIATIONS ET FLUX
+' ===================================================
+"MCU : ESP32_WROOM32"            --> "SRV : ServeurCentral"          : "<<flow>> JSON WiFi 5s"
+"SRV : ServeurCentral"          --> "UI : DashboardWeb"              : "<<flow>> WebSocket < 100ms"
+"WX : WeatherService"           --> "EXT : OpenMeteoAPI"             : "<<use>> HTTP GET"
+"ML_RF : RandomForestClassifier" --> "ALR : AlertSystem"             : "<<flow>> danger_level"
+"ML_LSTM : LSTMPredictor"       --> "ALR : AlertSystem"              : "<<flow>> pred_h2s, pred_co"
+"ALR : AlertSystem"             --> "ALERT_SON : BuzzerI2S"          : "<<flow>> trigger"
+"ALR : AlertSystem"             --> "ALERT_LED : WS2812B"            : "<<flow>> couleur niveau"
+"ALR : AlertSystem"             --> "UI : DashboardWeb"              : "<<flow>> alerte WebSocket"
+
+' ===================================================
+'  NOTES
+' ===================================================
+note right of "SYS : GazMonitor Pro"
+  Systeme complet :
+  1 serveur central Flask/Python
+  N casques ESP32 connectes simultanement
+  Dashboard accessible via navigateur
+  Meteo Open-Meteo sans cle API
+end note
+
+note bottom of "MCU : ESP32_WROOM32"
+  Payload JSON envoye toutes les 5s :
+  device_id | worker_name | zone
+  h2s_ppm | co_ppm | temperature | humidity
+  latitude | longitude | altitude | speed_kmh
+  satellites | hdop | gps_valid | wifi_rssi
+  exposure_time_s
+end note
+
+note right of "ML_LSTM : LSTMPredictor"
+  Architecture BiLSTM :
+  Input : (20, 9 features)
+  LSTM(128) -> Dropout(0.2)
+  LSTM(64)  -> Dropout(0.2)
+  Dense(20) -> Reshape(10, 2)
+  Output : pred H2S + CO sur 50s
+end note
+
+note bottom of "ALR : AlertSystem"
+  Niveaux de danger :
+  0 = Normal   (vert)
+  1 = Moyen    (jaune)
+  2 = Dangereux(orange)
+  3 = Critique (rouge)
+end note
+
+@enduml

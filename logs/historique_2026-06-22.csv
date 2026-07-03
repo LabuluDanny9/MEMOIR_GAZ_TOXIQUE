@@ -1,0 +1,4 @@
+horodatage,casque,zone,sensor1,sensor2,sensor3,sensor4,h2s_mesure,h2s_predit,dose_cumulee,temperature,humidite,prob_normal,prob_modere,prob_dangereux,niveau,label,temp_elevee,vitesse_kmh,satellites,altitude,hdop,rssi_wifi,exposition,latitude,longitude
+2026-06-22 09:10:54,CASQUE_001,Mine Kamoto - KCC Kolwezi,0.1,0.1,0.1,0.1,0.1,0.0,0.0,22.5,30.0,1.0,0.0,0.0,0,NORMAL,0,0,8,1440,1.2,-65,Faible,-10.717783333215639,25.473023421946664
+2026-06-22 09:11:10,CASQUE_001,Mine Kamoto - KCC Kolwezi,5.9,6.02,5.9,6.07,5.973,0.0,5.97,22.5,50.0,0.0,0.9901,0.0099,1,MODERE,0,0,8,1440,1.2,-65,Faible,-10.718265403838874,25.472684630555857
+2026-06-22 09:11:19,CASQUE_001,Mine Kamoto - KCC Kolwezi,17.7,17.84,17.84,17.04,17.605,0.0,23.58,23.0,46.0,0.0,0.0,1.0,2,DANGEREUX,0,0,8,1440,1.2,-65,Faible,-10.717689131167443,25.47235794519376
