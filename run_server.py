@@ -112,8 +112,8 @@ def get_local_ip():
     def is_bad(ip):
         return (ip.startswith("127.") or ip.startswith("169.254.") or
                 ip.startswith("10.2.0.") or          # ProtonVPN
-                ip.startswith("192.168.56.") or       # VirtualBox
-                ip.startswith("172.")                  # Docker/Hyper-V
+                ip.startswith("192.168.56.")           # VirtualBox
+                # Ne pas rejeter tout 172.x : le Wi-Fi DIL utilise 172.21.x.x.
                 )
 
     # 1) Lire ipconfig et prioriser l'adaptateur Wi-Fi
@@ -199,7 +199,7 @@ def main():
     # Mode production : aucun debug, aucun rechargement
     app.debug = False
     app.config["ENV"] = "production"
-    app.config["PROPAGATE_EXCEPTIONS"] = True
+    app.config["PROPAGATE_EXCEPTIONS"] = False
 
     # Initialisation
     startup()
@@ -235,7 +235,16 @@ def main():
 
     # --- Mode PRODUCTION : pas de debug, pas de reloader, logs silencieux ---
     import logging, warnings
+    class _WerkzeugClientAbortFilter(logging.Filter):
+        def filter(self, record):
+            msg = record.getMessage()
+            if "write() before start_response" in msg:
+                return False
+            if record.exc_info and "write() before start_response" in str(record.exc_info[1]):
+                return False
+            return True
     logging.getLogger("werkzeug").setLevel(logging.ERROR)
+    logging.getLogger("werkzeug").addFilter(_WerkzeugClientAbortFilter())
     warnings.filterwarnings("ignore")
     try:
         import flask.cli

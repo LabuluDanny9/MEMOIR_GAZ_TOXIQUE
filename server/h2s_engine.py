@@ -1,4 +1,4 @@
-"""
+﻿"""
 Moteur IA H2S - GazMonitor Pro.
 
 Version alignee sur les modeles corriges :
@@ -35,6 +35,7 @@ FUSION_FEATURE = "C_H2S_fusion_ppm"
 LEGACY_FEATURES = ["Sensor1[ppm]", "Sensor2[ppm]", "Sensor3[ppm]", "Sensor4[ppm]", "H2S_mean"]
 
 LSTM_WINDOW = 60
+DEMO_LSTM_WINDOW = 10
 LSTM_HORIZON_S = 50
 H2S_TRAIN_MIN = 0.0
 H2S_TRAIN_MAX = 31.44
@@ -243,7 +244,7 @@ class H2SEngine:
         self._buffers.pop(device_id, None)
         self._doses[device_id] = 0.0
 
-    def process(self, device_id, s1, s2, s3, s4, humidity, temperature):
+    def process(self, device_id, s1, s2, s3, s4, humidity, temperature, demo_window=None):
         """
         Analyse une mesure et retourne le resultat complet.
 
@@ -260,18 +261,34 @@ class H2SEngine:
         risk_class, probabilities = self._predict_rf(h2s_mesure, *sensors)
 
         buf = self._buffers.setdefault(device_id, deque(maxlen=self.window))
+        try:
+            demo_window = int(demo_window or 0)
+        except (TypeError, ValueError):
+            demo_window = 0
+        if demo_window <= 0 or demo_window > self.window:
+            demo_window = DEMO_LSTM_WINDOW
+        demo_window = min(demo_window, self.window)
+        visible_buffer_size = demo_window
         prediction_h2s = 0.0
         prediction_ready = False
 
         if risk_class == 0:
             buf.clear()
+            prediction_h2s = round(h2s_mesure, 2)
+            prediction_ready = True
         else:
             scale = max(self.h2s_max - self.h2s_min, 1e-8)
             h2s_norm = (h2s_mesure - self.h2s_min) / scale
             buf.append(float(np.clip(h2s_norm, 0.0, 1.0)))
 
-            if len(buf) == self.window:
-                seq = np.array(buf, dtype=np.float32).reshape(1, self.window, 1)
+            model_ready = len(buf) == self.window
+            early_ready = len(buf) >= demo_window
+            if model_ready or early_ready:
+                seq_values = list(buf)
+                if len(seq_values) < self.window:
+                    pad_value = seq_values[0] if seq_values else float(np.clip(h2s_norm, 0.0, 1.0))
+                    seq_values = [pad_value] * (self.window - len(seq_values)) + seq_values
+                seq = np.array(seq_values[-self.window:], dtype=np.float32).reshape(1, self.window, 1)
                 pred_n = float(np.ravel(self.lstm.predict(seq, verbose=0))[0])
                 pred_n = float(np.clip(pred_n, 0.0, 1.0))
                 prediction_h2s = round(pred_n * scale + self.h2s_min, 2)
@@ -315,8 +332,10 @@ class H2SEngine:
             "pred_risk_probability": pred_risk.get("pred_risk_probability", 0.0),
             "prediction_risk_model": pred_risk["risk_model"],
             "prediction_horizon_s": self.horizon_s,
-            "buffer_fill": len(buf),
-            "buffer_size": self.window,
+            "buffer_fill": min(len(buf), visible_buffer_size),
+            "buffer_size": visible_buffer_size,
+            "actual_buffer_fill": len(buf),
+            "model_window": self.window,
             "dose_accumulee": dose,
             "exposure_level": exposure,
             "model_type": self.rf_mode,

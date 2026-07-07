@@ -1,4 +1,4 @@
-"""
+﻿"""
 GazMonitor Pro — Serveur Flask
 Surveillance H2S : classification Random Forest + prediction LSTM + dose accumulee.
 Recoit les donnees du casque (1 capteur H2S + T/HR + GPS), applique les modeles
@@ -27,7 +27,7 @@ try:
     _HAS_WEATHER = True
 except Exception:
     _HAS_WEATHER = False
-    def get_weather(): return {"temperature": None, "humidity": None, "weather_description": None}
+    def get_weather(*args, **kwargs): return {"temperature": None, "humidity": None, "weather_description": None}
     def start_background_refresh(interval=600): pass
 
 # ─── APP ──────────────────────────────────────────────────────────
@@ -42,7 +42,7 @@ devices     = {}   # device_id -> dernier bcast (multi-casques)
 _lock       = threading.Lock()
 _stats      = {"total": 0, "alerts": 0}
 DEVICE_TIMEOUT = 30   # secondes sans donnees => casque hors ligne
-ESP32_TIMEOUT = 12    # secondes sans heartbeat => ESP32 hors ligne
+ESP32_TIMEOUT = 30    # secondes sans heartbeat => ESP32 hors ligne (Wi-Fi ESP32 plus stable)
 esp32_state = {
     "device_id": "CASQUE_001",
     "desired_enabled": True,
@@ -55,10 +55,30 @@ esp32_state = {
     "source": "startup",
     "message": "En attente du premier heartbeat ESP32",
 }
+dashboard_clients = set()  # Socket.IO clients actifs; requis pour autoriser la simulation.
+simulation_embedded_state = {
+    "active": False,
+    "risk_class": 0,
+    "risk_label": "NORMAL",
+    "led_state": None,
+    "reason": "idle",
+    "updated_at": 0.0,
+    "expires_at": 0.0,
+}  # Override LED envoye a l ESP32 uniquement pendant la simulation.
+
+ENV_DHT22 = "dht22"
+ENV_OPEN_METEO = "open_meteo"
+DEFAULT_ENV_LAT = -10.7181
+DEFAULT_ENV_LNG = 25.4728
+environment_state = {
+    "source": ENV_DHT22,
+    "last_weather": None,
+    "last_error": None,
+}
 
 PUBLIC_ENDPOINTS = {
     "login_page", "api_login", "api_logout", "api_health",
-    "receive_sensor_data", "api_connectivity", "api_esp32_command", "api_esp32_heartbeat", "static",
+    "receive_sensor_data", "api_connectivity", "api_esp32_command", "api_esp32_heartbeat", "api_demo_fill_buffer", "static",
 }
 
 
@@ -74,6 +94,20 @@ def require_admin_auth():
         return jsonify({"error": "Authentification administrateur requise"}), 401
     return redirect(url_for("login_page"))
 
+
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(exc):
+    """Evite qu'une coupure client remonte jusqu'a Werkzeug sans reponse HTTP."""
+    from werkzeug.exceptions import HTTPException
+    if isinstance(exc, HTTPException):
+        return exc
+    import traceback
+    traceback.print_exc()
+    if request.path.startswith("/api/"):
+        return jsonify({"status": "error", "message": "Erreur serveur interne"}), 500
+    return "Erreur serveur interne", 500
 
 # Seuil de detection incendie (temperature)
 FIRE_TEMP_C = 50.0   # >= 50 C => suspicion d'incendie
@@ -153,6 +187,166 @@ def _esp32_status_payload_unlocked():
 def _esp32_status_payload():
     with _lock:
         return _esp32_status_payload_unlocked()
+
+
+def _dashboard_connection_state():
+    with _lock:
+        clients = len(dashboard_clients)
+    return {
+        "connected": clients > 0,
+        "clients": clients,
+    }
+
+
+def _simulation_gate_response():
+    """Bloque la simulation si aucun dashboard n'est connecte au serveur temps reel."""
+    state = _dashboard_connection_state()
+    if state["connected"]:
+        return None
+    return jsonify({
+        "status": "error",
+        "code": "SERVER_DISCONNECTED",
+        "message": "Simulation refusee : connecter le serveur/dashboard avant de demarrer la simulation.",
+        "server_connected": False,
+        "dashboard_clients": state["clients"],
+    }), 409
+
+
+def _env_float(value, default=None):
+    try:
+        value = float(value)
+        if value != value:
+            return default
+        return value
+    except (TypeError, ValueError):
+        return default
+
+
+def _environment_mode_payload(weather=None):
+    source = environment_state.get("source", ENV_DHT22)
+    return {
+        "status": "ok",
+        "source": source,
+        "mode": source,
+        "enabled": source == ENV_OPEN_METEO,
+        "label": "Open-Meteo" if source == ENV_OPEN_METEO else "DHT22",
+        "weather": weather if weather is not None else environment_state.get("last_weather"),
+        "last_error": environment_state.get("last_error"),
+    }
+
+
+def _fetch_open_meteo_for_payload(d, force=False):
+    lat = _env_float(d.get("latitude"), DEFAULT_ENV_LAT) if isinstance(d, dict) else DEFAULT_ENV_LAT
+    lng = _env_float(d.get("longitude"), DEFAULT_ENV_LNG) if isinstance(d, dict) else DEFAULT_ENV_LNG
+    try:
+        weather = get_weather(latitude=lat, longitude=lng, force=force)
+    except TypeError:
+        weather = get_weather()
+    except Exception as exc:
+        weather = {"temperature": None, "humidity": None, "error": str(exc), "provider": "Open-Meteo"}
+    environment_state["last_weather"] = weather
+    environment_state["last_error"] = weather.get("error") if isinstance(weather, dict) else None
+    return weather if isinstance(weather, dict) else {}
+
+
+def _resolve_environment_values(d):
+    temperature = _env_float(d.get("temperature"), 25.0)
+    humidity = _env_float(d.get("humidity"), 50.0)
+    source = environment_state.get("source", ENV_DHT22)
+    env_info = {
+        "environment_source": ENV_DHT22,
+        "temperature_source": "DHT22",
+        "humidity_source": "DHT22",
+        "weather": None,
+    }
+    if source == ENV_OPEN_METEO:
+        weather = _fetch_open_meteo_for_payload(d)
+        wt = _env_float(weather.get("temperature"), None)
+        wh = _env_float(weather.get("humidity"), None)
+        if wt is not None and wh is not None:
+            temperature = wt
+            humidity = wh
+            env_info.update({
+                "environment_source": ENV_OPEN_METEO,
+                "temperature_source": "Open-Meteo",
+                "humidity_source": "Open-Meteo",
+                "weather": weather,
+            })
+        else:
+            env_info.update({
+                "environment_source": "open_meteo_fallback",
+                "temperature_source": "DHT22/fallback",
+                "humidity_source": "DHT22/fallback",
+                "weather": weather,
+            })
+    d.update(env_info)
+    return temperature, humidity
+
+def _led_state_for_risk(risk_class, fire_alert=False):
+    """Etat LED normalise pour le dashboard, la simulation et l'ESP32."""
+    try:
+        level = int(risk_class)
+    except (TypeError, ValueError):
+        level = 0
+    if fire_alert:
+        level = max(level, 2)
+    level = min(max(level, 0), 2)
+    states = {
+        0: {"risk_class": 0, "label": "LED VERTE", "color": "#22c55e", "buzzer": False, "rgb": {"red": False, "green": True, "blue": False}},
+        1: {"risk_class": 1, "label": "LED ORANGE", "color": "#eab308", "buzzer": False, "rgb": {"red": True, "green": True, "blue": False}},
+        2: {"risk_class": 2, "label": "LED ROUGE + BUZZER", "color": "#ef4444", "buzzer": True, "rgb": {"red": True, "green": False, "blue": False}},
+    }
+    return states[level]
+
+
+def _set_simulation_embedded_state(risk_class=0, reason="simulation", active=True, ttl_s=None):
+    """Commande envoyee a l ESP32 pendant la simulation.
+
+    ttl_s=None maintient l'etat jusqu'a un arret explicite. C'est volontaire
+    pour eviter que la LED s'eteigne pendant une simulation longue.
+    """
+    level = min(max(int(risk_class or 0), 0), 2)
+    led = _led_state_for_risk(level)
+    now = datetime.utcnow().timestamp()
+    expires_at = None
+    if ttl_s is not None:
+        expires_at = now + max(float(ttl_s or 0), 1.0)
+    simulation_embedded_state.update({
+        "active": bool(active),
+        "risk_class": level,
+        "risk_label": RISK_LABELS.get(level, "NORMAL"),
+        "led_state": led,
+        "reason": reason,
+        "updated_at": now,
+        "expires_at": expires_at,
+    })
+    return dict(simulation_embedded_state)
+
+
+def _get_simulation_embedded_state():
+    now = datetime.utcnow().timestamp()
+    if not simulation_embedded_state.get("active"):
+        return None
+    expires_at = simulation_embedded_state.get("expires_at")
+    if expires_at is not None and now > float(expires_at or 0.0):
+        simulation_embedded_state["active"] = False
+        return None
+    return dict(simulation_embedded_state)
+
+
+def _mq136_behavior_for_h2s(h2s_ppm):
+    try:
+        value = max(float(h2s_ppm or 0.0), 0.0)
+    except (TypeError, ValueError):
+        value = 0.0
+    level = classify_c_fusion(value)
+    return {
+        "sensor": "MQ-136",
+        "h2s_ppm": value,
+        "risk_class": level,
+        "risk_label": RISK_LABELS.get(level, "NORMAL"),
+        "led_state": _led_state_for_risk(level),
+    }
 
 
 def _update_esp32_presence(data, source="heartbeat"):
@@ -284,6 +478,9 @@ def api_health():
         "esp32_control_endpoint": "/api/esp32/control",
         "esp32_command_endpoint": "/api/esp32/command",
         "esp32_heartbeat_endpoint": "/api/esp32/heartbeat",
+        "weather_endpoint": "/api/weather",
+        "weather_mode_endpoint": "/api/weather/mode",
+        "environment_source": environment_state.get("source", ENV_DHT22),
         "port": FLASK_PORT,
         "c_fusion_definition": "C_fusion = concentration H2S fusionnee en ppm",
         "decision_rule": DECISION_RULE,
@@ -331,12 +528,35 @@ def api_esp32_command():
         "ip_address": request.args.get("ip_address", ""),
     }
     status = _update_esp32_presence(data, "command")
+    sim_state = _get_simulation_embedded_state()
+    if sim_state:
+        risk_class = int(sim_state.get("risk_class", 0) or 0)
+        return jsonify({
+            "status": "ok",
+            "enabled": status["desired_enabled"],
+            "device_id": status["device_id"],
+            "send_interval_ms": 5000,
+            "heartbeat_interval_ms": 3000,
+            "simulation_override": True,
+            "simulation_reason": sim_state.get("reason", "simulation"),
+            "risk_class": risk_class,
+            "risk_label": sim_state.get("risk_label", RISK_LABELS.get(risk_class, "NORMAL")),
+            "led_state": sim_state.get("led_state") or _led_state_for_risk(risk_class),
+            "sensor_endpoint": "/api/sensor_data",
+        }), 200
+    with _lock:
+        current = dict(devices.get(status["device_id"], {}))
+    risk_class = int(current.get("risk_class", 0) or 0)
     return jsonify({
         "status": "ok",
         "enabled": status["desired_enabled"],
         "device_id": status["device_id"],
         "send_interval_ms": 5000,
-        "heartbeat_interval_ms": 2000,
+        "heartbeat_interval_ms": 3000,
+        "simulation_override": False,
+        "risk_class": risk_class,
+        "risk_label": current.get("risk_label", "NORMAL"),
+        "led_state": _led_state_for_risk(risk_class),
         "sensor_endpoint": "/api/sensor_data",
     }), 200
 
@@ -352,6 +572,8 @@ def api_esp32_heartbeat():
         "enabled": status["desired_enabled"],
         "online": status["online"],
         "label": status["label"],
+        "heartbeat_interval_ms": 3000,
+        "send_interval_ms": 5000,
     }), 200
 
 
@@ -371,14 +593,7 @@ def api_connectivity():
         h2s = max(0.0, float(raw_h2s or 0.0))
     except (TypeError, ValueError):
         h2s = 0.0
-    try:
-        temperature = float(data.get("temperature", 25.0) or 25.0)
-    except (TypeError, ValueError):
-        temperature = 25.0
-    try:
-        humidity = float(data.get("humidity", 50.0) or 50.0)
-    except (TypeError, ValueError):
-        humidity = 50.0
+    temperature, humidity = _resolve_environment_values(data)
 
     risk_class = classify_c_fusion(h2s)
     risk_label = RISK_LABELS.get(risk_class, "NORMAL") if status["desired_enabled"] else "DESACTIVE"
@@ -429,6 +644,7 @@ def api_connectivity():
         "risk_class": risk_class,
         "risk_label": risk_label,
         "decision_rule": DECISION_RULE,
+        "mq136_behavior": bcast.get("mq136_behavior"),
         "timestamp": bcast["timestamp"],
     }), 200
 # ===============================================================
@@ -455,18 +671,19 @@ def receive_sensor_data():
 
     try:
         s1, s2, s3, s4 = _extract_sensors(d)
-        temperature = float(d.get("temperature", 25.0))
-        humidity    = float(d.get("humidity", 50.0))
+        temperature, humidity = _resolve_environment_values(d)
         device_id   = d.get("device_id", "CASQUE_001")
         esp_status = _update_esp32_presence(d, "sensor_data")
-        if not esp_status["desired_enabled"]:
+        demo_buffer = bool(d.get("demo_buffer") or d.get("manual_demo"))
+        if not esp_status["desired_enabled"] and not demo_buffer:
             return jsonify({"status": "paused", "enabled": False, "message": "ESP32 suspendu depuis le dashboard"}), 202
         worker_cfg = get_worker(device_id)
         if worker_cfg and worker_cfg.get("status") != "active":
             return jsonify({"error": "Casque desactive", "device_id": device_id}), 403
 
         # --- Moteur IA : RF + LSTM + dose ---
-        res = engine.process(device_id, s1, s2, s3, s4, humidity, temperature)
+        demo_window = int(d.get("demo_window", 10 if demo_buffer else 0) or 0) if demo_buffer else None
+        res = engine.process(device_id, s1, s2, s3, s4, humidity, temperature, demo_window=demo_window)
 
         # --- Construction du payload dashboard ---
         bcast = _build_broadcast(d, res, s1, s2, s3, s4, temperature, humidity)
@@ -481,16 +698,43 @@ def receive_sensor_data():
         _log_history(bcast)
         socketio.emit("new_data", bcast)
 
+        sim_state = _get_simulation_embedded_state()
+        if sim_state:
+            response_risk_class = int(sim_state.get("risk_class", 0) or 0)
+            response_risk_label = sim_state.get("risk_label", RISK_LABELS.get(response_risk_class, "NORMAL"))
+            response_led_state = sim_state.get("led_state") or _led_state_for_risk(response_risk_class)
+            response_simulation_override = True
+        else:
+            response_risk_class = res["risk_class"]
+            response_risk_label = res["risk_label"]
+            response_led_state = bcast.get("led_state")
+            response_simulation_override = False
         return jsonify({
-            "risk_class":     res["risk_class"],
-            "risk_label":     res["risk_label"],
+            "status":         "ok",
+            "enabled":        esp_status["desired_enabled"],
+            "risk_class":     response_risk_class,
+            "risk_label":     response_risk_label,
+            "simulation_override": response_simulation_override,
+            "c_fusion_ppm":   bcast.get("c_fusion_ppm"),
+            "h2s_ppm":        bcast.get("h2s_ppm"),
+            "mq136_behavior": bcast.get("mq136_behavior"),
+            "led_state":      response_led_state,
+            "rgb_led":        response_led_state.get("rgb") if isinstance(response_led_state, dict) else bcast.get("rgb_led"),
             "prediction_h2s": res["prediction_h2s"],
+            "prediction_ready": res["prediction_ready"],
+            "prediction_horizon_s": res.get("prediction_horizon_s", getattr(engine, "horizon_s", 50)),
+            "buffer_fill":    res["buffer_fill"],
+            "buffer_size":    res["buffer_size"],
             "dose_accumulee": res["dose_accumulee"],
             "fire_alert":     bcast["fire_alert"],
             "pred_risk_class": res.get("pred_risk_class", 0),
             "pred_risk_label": res.get("pred_risk_label", "NORMAL"),
+            "pred_probabilities": res.get("pred_probabilities", {0: 1.0, 1: 0.0, 2: 0.0}),
+            "pred_risk_probability": res.get("pred_risk_probability", 0.0),
+            "prediction_risk_model": res.get("prediction_risk_model", ""),
             "latitude":       d.get("latitude", 0.0),
             "longitude":      d.get("longitude", 0.0),
+            "data":           bcast,
         }), 201
 
     except Exception as e:
@@ -507,6 +751,68 @@ def api_reset():
     engine.reset_device(d.get("device_id", "CASQUE_001"))
     return jsonify({"status": "reset_ok"}), 200
 
+
+
+@app.route("/api/demo/fill_buffer", methods=["POST"])
+def api_demo_fill_buffer():
+    """Remplit le buffer LSTM en une seule requete pour une demonstration fiable."""
+    d = request.get_json(silent=True) or {}
+    device_id = str(d.get("device_id") or "CASQUE_001")
+    worker_name = str(d.get("worker_name") or "Technicien DANNY")
+    zone = str(d.get("zone") or "Mine Kamoto - KCC Kolwezi")
+    try:
+        demo_window = int(d.get("demo_window", 10) or 10)
+    except (TypeError, ValueError):
+        demo_window = 10
+    demo_window = max(1, min(demo_window, 10))
+
+    engine.reset_device(device_id)
+    last_bcast = None
+    for i in range(demo_window):
+        h2s = round(12.0 + ((i % 3) - 1) * 0.15, 2)
+        temperature = 29.0
+        humidity = 68.0
+        res = engine.process(device_id, h2s, h2s, h2s, h2s, humidity, temperature, demo_window=demo_window)
+        payload = {
+            "device_id": device_id,
+            "worker_name": worker_name,
+            "zone": zone,
+            "h2s_ppm": h2s,
+            "temperature": temperature,
+            "humidity": humidity,
+            "wifi_rssi": -62,
+            "gps_valid": True,
+            "latitude": -10.7181,
+            "longitude": 25.4728,
+            "altitude": 1440,
+            "speed_kmh": 0.3,
+            "satellites": 9,
+            "hdop": 1.1,
+            "demo_buffer": True,
+            "demo_window": demo_window,
+        }
+        last_bcast = _build_broadcast(payload, res, h2s, h2s, h2s, h2s, temperature, humidity)
+
+    with _lock:
+        global last_result
+        last_result = last_bcast or {}
+        if last_bcast:
+            devices[device_id] = last_bcast
+            _stats["total"] += demo_window
+            if last_bcast.get("risk_class", 0) >= 2 or last_bcast.get("fire_alert"):
+                _stats["alerts"] += 1
+
+    if last_bcast:
+        socketio.emit("new_data", last_bcast)
+    return jsonify({
+        "status": "ok",
+        "count": demo_window,
+        "prediction_ready": bool(last_bcast and last_bcast.get("prediction_ready")),
+        "prediction_h2s": (last_bcast or {}).get("prediction_h2s", 0.0),
+        "buffer_fill": (last_bcast or {}).get("buffer_fill", 0),
+        "buffer_size": (last_bcast or {}).get("buffer_size", demo_window),
+        "data": last_bcast,
+    }), 200
 
 # ===============================================================
 #  Lecture etat courant + stats + meteo
@@ -535,6 +841,7 @@ def api_devices():
 @app.route("/api/sim_clear", methods=["POST"])
 def api_sim_clear():
     """Supprime tous les casques SIM de la flotte et remet leurs buffers a zero."""
+    _set_simulation_embedded_state(0, reason="simulation_clear", active=True, ttl_s=60)
     with _lock:
         sim_ids = [k for k in devices if k.startswith("SIM")]
         for sid in sim_ids:
@@ -544,6 +851,28 @@ def api_sim_clear():
         socketio.emit("sim_cleared", {"removed": sim_ids})
     return jsonify({"status": "cleared", "removed": sim_ids}), 200
 
+
+@app.route("/api/simulation/embedded_stop", methods=["POST"])
+def api_simulation_embedded_stop():
+    """Force la carte ESP32 en etat normal pendant une simulation, sans arreter le dashboard."""
+    state = _set_simulation_embedded_state(0, reason="simulation_stop_button", active=True, ttl_s=60)
+    socketio.emit("simulation_embedded_state", state)
+    return jsonify({"status": "ok", "embedded": state}), 200
+
+
+
+@app.route("/api/simulation/stop_all", methods=["POST"])
+def api_simulation_stop_all():
+    """Arret global: dashboard + casques SIM + ESP32 en etat normal."""
+    state = _set_simulation_embedded_state(0, reason="simulation_stop_all", active=True, ttl_s=60)
+    with _lock:
+        sim_ids = [k for k in devices if k.startswith("SIM")]
+        for sid in sim_ids:
+            devices.pop(sid, None)
+            engine.reset_device(sid)
+    socketio.emit("simulation_embedded_state", state)
+    socketio.emit("sim_cleared", {"removed": sim_ids, "reason": "stop_all"})
+    return jsonify({"status": "stopped", "removed": sim_ids, "embedded": state}), 200
 
 @app.route("/api/stats")
 def api_stats():
@@ -606,7 +935,43 @@ def api_worker_detail(device_id):
 
 @app.route("/api/weather")
 def api_weather():
-    return jsonify(get_weather()), 200
+    force = request.args.get("force") in {"1", "true", "yes"}
+    lat = _env_float(request.args.get("latitude"), DEFAULT_ENV_LAT)
+    lng = _env_float(request.args.get("longitude"), DEFAULT_ENV_LNG)
+    if environment_state.get("source") == ENV_OPEN_METEO or force:
+        weather = _fetch_open_meteo_for_payload({"latitude": lat, "longitude": lng}, force=force)
+    else:
+        weather = environment_state.get("last_weather") or {}
+    payload = _environment_mode_payload(weather)
+    if isinstance(weather, dict):
+        payload.update({
+            "temperature": weather.get("temperature"),
+            "humidity": weather.get("humidity"),
+            "provider": weather.get("provider", "Open-Meteo"),
+            "site": weather.get("site"),
+            "latitude": weather.get("latitude", lat),
+            "longitude": weather.get("longitude", lng),
+            "fetched_at": weather.get("fetched_at"),
+        })
+    return jsonify(payload), 200
+
+
+@app.route("/api/weather/mode", methods=["POST"])
+def api_weather_mode():
+    d = request.get_json(silent=True) or {}
+    source = str(d.get("source") or "").strip().lower()
+    if not source:
+        source = ENV_OPEN_METEO if bool(d.get("enabled")) else ENV_DHT22
+    aliases = {"meteo": ENV_OPEN_METEO, "weather": ENV_OPEN_METEO, "open-meteo": ENV_OPEN_METEO, "open_meteo": ENV_OPEN_METEO, "dht": ENV_DHT22, "dht22": ENV_DHT22}
+    source = aliases.get(source, source)
+    if source not in {ENV_DHT22, ENV_OPEN_METEO}:
+        return jsonify({"status": "error", "message": "source doit etre dht22 ou open_meteo"}), 400
+    environment_state["source"] = source
+    weather = None
+    if source == ENV_OPEN_METEO:
+        weather = _fetch_open_meteo_for_payload(d, force=True)
+    socketio.emit("weather_mode", _environment_mode_payload(weather))
+    return jsonify(_environment_mode_payload(weather)), 200
 
 
 # Infos serveur pour la connexion facile de l'ESP32 (affichees sur le dashboard)
@@ -614,6 +979,7 @@ def api_weather():
 def api_server_info():
     ip = _detect_server_ip()
     esp_status = _esp32_status_payload()
+    dashboard_state = _dashboard_connection_state()
     now = datetime.utcnow().timestamp()
     return jsonify({
         "ip":        ip,
@@ -624,6 +990,11 @@ def api_server_info():
         "esp32_enabled": esp_status["desired_enabled"],
         "esp32_label": esp_status["label"],
         "esp32": esp_status,
+        "server_connected": dashboard_state["connected"],
+        "dashboard_clients": dashboard_state["clients"],
+        "simulation_enabled": dashboard_state["connected"],
+        "environment_source": environment_state.get("source", ENV_DHT22),
+        "weather": environment_state.get("last_weather"),
         "c_fusion_definition": "C_fusion = concentration H2S fusionnee en ppm",
         "decision_rule": DECISION_RULE,
         "devices_online": sum(1 for b in devices.values()
@@ -652,6 +1023,25 @@ def api_preset():
 #  SIMULATEUR (sans materiel) — genere 1 capteur selon un scenario
 # ===============================================================
 SIM_CLASSES = ["normal", "modere", "dangereux"]
+SIM_SCENARIO_RISK = {"normal": 0, "modere": 1, "dangereux": 2}
+
+
+def _embedded_risk_for_simulation(mode, phase, results):
+    """Classe LED envoyee a l ESP32 pendant la simulation.
+
+    Correspondance stricte:
+    normal -> 0 -> LED verte
+    modere -> 1 -> LED orange
+    dangereux -> 2 -> LED rouge
+    """
+    mode = str(mode or "tous")
+    if mode in SIM_SCENARIO_RISK:
+        return SIM_SCENARIO_RISK[mode]
+    if mode == "cycle":
+        return SIM_SCENARIO_RISK[SIM_CLASSES[int(phase or 0) % len(SIM_CLASSES)]]
+    if mode == "montee":
+        return min(max(int(phase or 0) // 20, 0), 2)
+    return max(int(b.get("risk_class", 0) or 0) for b in (results or [{"risk_class": 0}]))
 
 
 def _scenario_for_worker(mode, worker_index, phase=0):
@@ -676,7 +1066,7 @@ def _scenario_sample(cls: int):
     return bank[:12] + [fixed[cls]]
 
 
-def _simulate_one_worker(device_id, worker_name, zone, scenario):
+def _simulate_one_worker(device_id, worker_name, zone, scenario, phase=0):
     """Simule une mesure pour un casque et retourne le broadcast complet."""
     seed = sum(ord(c) for c in device_id)
     base_lat = -10.7181 + ((seed % 7) - 3) * 0.0006
@@ -684,7 +1074,8 @@ def _simulate_one_worker(device_id, worker_name, zone, scenario):
 
     target_cls = {"normal": 0, "modere": 1, "dangereux": 2}.get(scenario, 0)
     if scenario == "montee":
-        target_cls = random.choices([0, 1, 2], weights=[0.3, 0.4, 0.3])[0]
+        # Simulation de montee progressive sur 2 minutes: vert -> orange -> rouge.
+        target_cls = min(max(int(phase) // 20, 0), 2)
 
     chosen = None
     chosen_res = None
@@ -731,12 +1122,16 @@ def _simulate_one_worker(device_id, worker_name, zone, scenario):
 
 @app.route("/api/simulate", methods=["POST"])
 def api_simulate():
+    blocked = _simulation_gate_response()
+    if blocked:
+        return blocked
     body = request.get_json(silent=True) or {}
     bcast = _simulate_one_worker(
         body.get("device_id", "SIM_001"),
         body.get("worker_name", "Simulateur"),
         body.get("zone", "Zone Test"),
         body.get("scenario", "normal"),
+        int(body.get("phase", 0)),
     )
     with _lock:
         global last_result
@@ -755,6 +1150,9 @@ def api_simulate_fleet():
     Simule TOUS les travailleurs en une seule requete atomique.
     Emet fleet_snapshot pour mise a jour simultanee du dashboard.
     """
+    blocked = _simulation_gate_response()
+    if blocked:
+        return blocked
     body = request.get_json(silent=True) or {}
     mode = body.get("scenario", "tous")
     phase = int(body.get("phase", 0))
@@ -774,6 +1172,7 @@ def api_simulate_fleet():
                 w.get("worker_name", f"Operateur {idx+1}"),
                 w.get("zone", "Zone Test"),
                 sc,
+                phase,
             )
             results.append(bcast)
     except Exception as e:
@@ -783,6 +1182,13 @@ def api_simulate_fleet():
 
     if not results:
         return jsonify({"status": "error", "message": "Aucun travailleur simule"}), 500
+
+    if body.get("embedded_stop"):
+        embedded_risk = 0
+        embedded_state = _set_simulation_embedded_state(embedded_risk, reason="simulation_stop_button", active=True, ttl_s=30)
+    else:
+        embedded_risk = _embedded_risk_for_simulation(mode, phase, results)
+        embedded_state = _set_simulation_embedded_state(embedded_risk, reason=f"simulation_{mode}", active=True, ttl_s=None)
 
     with _lock:
         global last_result
@@ -809,6 +1215,7 @@ def api_simulate_fleet():
         "scenario": mode,
         "phase": phase,
         "count": len(results),
+        "embedded": embedded_state,
         "devices": results,
     }), 200
 
@@ -997,7 +1404,26 @@ def dashboard():
 # ESP32, simulation ou saisie manuelle) n'envoie de donnees.
 @socketio.on("connect")
 def on_connect():
-    pass
+    with _lock:
+        dashboard_clients.add(request.sid)
+        clients = len(dashboard_clients)
+    socketio.emit("server_connection_status", {
+        "connected": True,
+        "dashboard_clients": clients,
+        "simulation_enabled": True,
+    })
+
+
+@socketio.on("disconnect")
+def on_disconnect():
+    with _lock:
+        dashboard_clients.discard(request.sid)
+        clients = len(dashboard_clients)
+    socketio.emit("server_connection_status", {
+        "connected": clients > 0,
+        "dashboard_clients": clients,
+        "simulation_enabled": clients > 0,
+    })
 
 
 # ===============================================================
@@ -1019,13 +1445,20 @@ def _build_broadcast(d, res, s1, s2, s3, s4, temperature, humidity):
         "decision_rule": res.get("decision_rule", DECISION_RULE),
         "sensor1": s1, "sensor2": s2, "sensor3": s3, "sensor4": s4,
         "h2s_mesure":  res["h2s_mesure"],
+        "mq136_behavior": _mq136_behavior_for_h2s(res.get("c_fusion_ppm", res.get("h2s_fusion_ppm", res["h2s_mesure"]))),
         "temperature": temperature,
         "humidity":    humidity,
+        "environment_source": d.get("environment_source", ENV_DHT22),
+        "temperature_source": d.get("temperature_source", "DHT22"),
+        "humidity_source": d.get("humidity_source", "DHT22"),
+        "weather": d.get("weather"),
         "wifi_rssi":   d.get("wifi_rssi", -100),
         # Classification RF
         "risk_class":      res["risk_class"],
         "risk_label":      res["risk_label"],
-        "risk_color":      DANGER_COLORS.get(res["risk_class"], "#22c55e"),
+        "risk_color":      _led_state_for_risk(res["risk_class"], bool(temperature >= FIRE_TEMP_C))["color"],
+        "led_state":       _led_state_for_risk(res["risk_class"], bool(temperature >= FIRE_TEMP_C)),
+        "rgb_led":         _led_state_for_risk(res["risk_class"], bool(temperature >= FIRE_TEMP_C))["rgb"],
         "probabilities":   res["probabilities"],     # {0:..,1:..,2:..}
         # Prediction LSTM
         "prediction_h2s":   res["prediction_h2s"],
@@ -1038,6 +1471,8 @@ def _build_broadcast(d, res, s1, s2, s3, s4, temperature, humidity):
         "prediction_horizon_s": res.get("prediction_horizon_s", 50),
         "buffer_fill":      res["buffer_fill"],
         "buffer_size":      res["buffer_size"],
+        "actual_buffer_fill": res.get("actual_buffer_fill", res["buffer_fill"]),
+        "model_window":     res.get("model_window", res["buffer_size"]),
         # Dose
         "dose_accumulee":  res["dose_accumulee"],
         "exposure_level":  res["exposure_level"],
@@ -1130,6 +1565,10 @@ def _build_idle_state():
         "decision_rule": DECISION_RULE,
         "temperature": 0.0,
         "humidity": 0.0,
+        "environment_source": environment_state.get("source", ENV_DHT22),
+        "temperature_source": "Open-Meteo" if environment_state.get("source") == ENV_OPEN_METEO else "DHT22",
+        "humidity_source": "Open-Meteo" if environment_state.get("source") == ENV_OPEN_METEO else "DHT22",
+        "weather": environment_state.get("last_weather"),
         "wifi_rssi": 0,
         "risk_class": 0,
         "risk_label": "NORMAL",
@@ -1271,5 +1710,10 @@ if __name__ == "__main__":
     startup()
     socketio.run(app, host=FLASK_HOST, port=FLASK_PORT,
                  debug=False, use_reloader=False, allow_unsafe_werkzeug=True)
+
+
+
+
+
 
 

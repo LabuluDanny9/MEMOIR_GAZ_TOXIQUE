@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="fr" data-theme="dark">
 <head>
 <meta charset="UTF-8">
@@ -62,6 +62,7 @@ select{background:var(--card2);border:1px solid var(--line);color:var(--tx);padd
 .btn.primary.on{background:var(--bad);border-color:var(--bad);animation:bl 1.3s infinite}
 .btn.fire{border-color:var(--fire);color:var(--fire)}
 .btn.fire:hover{background:var(--fire);color:#fff}
+.btn.weather-on{border-color:#10a37f66;color:var(--hum);background:#10a37f14}
 .btn.ghost{padding:8px 11px}
 .ico{width:38px;height:38px;padding:0;justify-content:center;border-radius:9px}
 .clock{font-size:.76rem;color:var(--tx2);font-variant-numeric:tabular-nums;min-width:120px;text-align:right}
@@ -376,8 +377,9 @@ body[data-page="visual"] #helmet3d-panel{min-width:0}
   <div class="ctrls">
     <div class="src" id="src"><span class="led"></span><span id="src-t">En veille</span></div>
     <div class="src" id="esp-mini" title="Etat de la liaison ESP32"><img class="esp-mini-icon" src="/static/casque_iot.png" alt="Casque IoT"><span id="esp-mini-t">ESP32...</span></div>
-    <button class="btn" id="bconn" onclick="toggleServer()" title="Connecter / deconnecter le serveur">Connecte</button>
+    <button class="btn" id="bconn" onclick="toggleServer()" title="Connecter / déconnecter le serveur">Connecté</button>
     <button class="btn" onclick="openEsp()">ESP32</button>
+    <button class="btn" id="bweather" onclick="toggleWeatherMode()" title="Utiliser Open-Meteo pour remplacer le DHT22">Météo: DHT22</button>
     <button class="btn" onclick="fetch('/api/auth/logout',{method:'POST'}).finally(()=>location.href='/login')">Déconnexion</button>
     <button class="btn ico" id="bth" onclick="toggleTheme()">☾</button>
     <div class="clock" id="clock">—</div>
@@ -401,6 +403,8 @@ body[data-page="visual"] #helmet3d-panel{min-width:0}
       <option value="dangereux">Tous — Dangereux</option>
     </select>
     <button class="btn primary" id="bsim" onclick="toggleSim()">Simuler</button>
+    <button class="btn fire" id="bstop-sim" onclick="stopSimManual()" disabled>Arrêter simulation</button>
+    <button class="btn ghost" id="bstop-situation" onclick="stopEmbeddedSituation()" disabled>Stop situation ESP32</button>
     <button class="btn" onclick="exportAll()">Exporter tout</button>
     <button class="btn ghost" onclick="exportToday()">Exporter jour</button>
   </div>
@@ -423,6 +427,7 @@ body[data-page="visual"] #helmet3d-panel{min-width:0}
             <span class="pill" id="w-pill"><span class="led"></span> Hors ligne</span></div></div>
         <div class="row"><span class="k">Casque</span><span class="v" id="w-id">—</span></div>
         <div class="row"><span class="k">Capteur H₂S</span><span class="v" id="w-sens">—</span></div>
+        <div class="row"><span class="k">Comportement MQ-136</span><span class="v" id="w-mq">-</span></div>
         <div class="row"><span class="k">Signal WiFi</span><span class="v" id="w-rssi">—</span></div>
         <div class="row"><span class="k">Mesures</span><span class="v" id="w-cnt">0</span></div>
       </div>
@@ -459,8 +464,8 @@ body[data-page="visual"] #helmet3d-panel{min-width:0}
     <div class="gg" id="gauges">
       <div class="g" id="gg-h2s"><div class="lab">Concentration H2S actuelle</div><div><span class="num" id="v-h2s">&mdash;</span><span class="u">ppm</span></div><div class="track"><div class="fillb" id="f-h2s"></div></div><div class="ref"></div></div>
       <div class="g"><div class="lab">H₂S prédit</div><div><span class="num" id="v-pred" style="color:var(--pred)">—</span><span class="u">ppm</span></div><div class="track"><div class="fillb" id="f-pred" style="background:var(--pred)"></div></div><div class="ref">LSTM · 50 s</div></div>
-      <div class="g"><div class="lab">Température</div><div><span class="num" id="v-temp" style="color:var(--temp)">—</span><span class="u">°C</span></div><div class="track"><div class="fillb" id="f-temp" style="background:var(--temp)"></div></div><div class="ref">DHT22</div></div>
-      <div class="g"><div class="lab">Humidité</div><div><span class="num" id="v-hum" style="color:var(--hum)">—</span><span class="u">%</span></div><div class="track"><div class="fillb" id="f-hum" style="background:var(--hum)"></div></div><div class="ref">DHT22</div></div>
+      <div class="g"><div class="lab">Température</div><div><span class="num" id="v-temp" style="color:var(--temp)">—</span><span class="u">°C</span></div><div class="track"><div class="fillb" id="f-temp" style="background:var(--temp)"></div></div><div class="ref" id="temp-src">DHT22</div></div>
+      <div class="g"><div class="lab">Humidité</div><div><span class="num" id="v-hum" style="color:var(--hum)">—</span><span class="u">%</span></div><div class="track"><div class="fillb" id="f-hum" style="background:var(--hum)"></div></div><div class="ref" id="hum-src">DHT22</div></div>
       <div class="g"><div class="lab">Dose cumulée</div><div><span class="num" id="v-dose" style="color:var(--dose)">—</span><span class="u">ppm</span></div><div class="track"><div class="fillb" id="f-dose" style="background:var(--dose)"></div></div><div class="ref" id="r-dose">exposition</div></div>
     </div>
     <div class="panel" id="fleet-overview-panel">
@@ -551,11 +556,11 @@ body[data-page="visual"] #helmet3d-panel{min-width:0}
 <div class="modal" id="esp"><div class="mbox">
   <div class="mh"><h3>Connecter l'ESP32 par WiFi</h3><span class="mc" onclick="closeEsp()">×</span></div>
   <div class="mb">
-    <div class="pill esp-status" id="esp-st" style="margin-bottom:10px;color:var(--fire);border-color:var(--fire)"><img class="esp-status-helmet" src="/static/casque_iot.png" alt="Casque IoT"> ESP32 non detecte</div>
-    <div class="code" id="esp-detail" style="margin-bottom:12px">Etat: attente du heartbeat ESP32</div>
+    <div class="pill esp-status" id="esp-st" style="margin-bottom:10px;color:var(--fire);border-color:var(--fire)"><img class="esp-status-helmet" src="/static/casque_iot.png" alt="Casque IoT"> ESP32 non détecté</div>
+    <div class="code" id="esp-detail" style="margin-bottom:12px">État: attente du heartbeat ESP32</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
       <button class="btn primary" id="esp-connect" onclick="setEspControl(true)">Connecter ESP32</button>
-      <button class="btn" id="esp-disconnect" onclick="setEspControl(false)">Deconnecter ESP32</button>
+      <button class="btn" id="esp-disconnect" onclick="setEspControl(false)">Déconnectér ESP32</button>
       <button class="btn" onclick="refEsp()">Actualiser</button>
     </div>
     <div class="stp"><div class="n">1</div><div class="c">Adresse du serveur (le casque s'y connecte seul) :
@@ -571,8 +576,9 @@ body[data-page="visual"] #helmet3d-panel{min-width:0}
 
 <script>
 const D={0:{c:'#15a34a',b:'#15a34a',bg:'#15a34a14',l:'NORMAL'},1:{c:'#ca8a04',b:'#ca8a04',bg:'#ca8a0414',l:'MODÉRÉ'},2:{c:'#dc2626',b:'#dc2626',bg:'#dc262614',l:'DANGEREUX'}};
-let liveSource=null, lastTs=0, count=0, fireAck=false, gasSilenced=false;
+let liveSource=null, lastTs=0, count=0, fireAck=false, gasSilenced=false, alarmLatched=false;
 let helmet3d=null;
+let serverIpForCfg="172.21.69.74";
 
 /* CASQUE 3D */
 function initHelmet3D(){
@@ -680,17 +686,44 @@ function stopEvac(){
   evacOn=false;
   try{ evac.pause(); evac.currentTime=0; }catch(e){}
 }
-// Le son d'evacuation se déclenche en situation dangereuse (gaz DANGEREUX).
+// Le son d'evacuation se declenche en situation dangereuse et reste actif
+// jusqu'a acquittement manuel via le bouton "Couper l'alarme".
 function refreshEvac(){
-  const danger = window._gasDanger && !gasSilenced;
-  if(danger) playEvac(); else stopEvac();
+  const activeAlarm = alarmLatched && !gasSilenced;
+  if(activeAlarm) playEvac(); else stopEvac();
 }
-function gasAlarm(on){ window._gasDanger=on; if(on)gasSilenced=false; refreshEvac(); }
-function silenceAlarm(){gasSilenced=true;window._gasDanger=false;refreshEvac();document.getElementById('gas-banner').classList.remove('show');}
-setInterval(()=>{if(window._gasDanger&&!gasSilenced&&evac.paused)playEvac();},1500);
+function gasAlarm(on){
+  window._gasDanger=!!on;
+  if(on){alarmLatched=true;gasSilenced=false;}
+  refreshEvac();
+}
+async function stopEsp32Buzzer(reason='silence_alarm'){
+  try{
+    await fetch('/api/simulation/embedded_stop',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({source:reason})
+    });
+  }catch(e){console.warn('Arret buzzer ESP32:',e);}
+}
+function silenceAlarm(){
+  gasSilenced=true;
+  alarmLatched=false;
+  window._gasDanger=false;
+  if(typeof simTimer!=='undefined'&&simTimer){
+    simEmbeddedStopped=true;
+    updateSimulationState();
+  }
+  stopEsp32Buzzer('silence_alarm');
+  refreshEvac();
+  document.getElementById('gas-banner').classList.remove('show');
+}
+setInterval(()=>{if(alarmLatched&&!gasSilenced&&evac.paused)playEvac();},1500);
+
 
 /* SOCKET + CONNEXION SERVEUR */
 let socket, serverConnected=true;
+let weatherMode="dht22", weatherCache=null;
 function connect(){
   socket=io(window.location.origin,{transports:['websocket','polling'],reconnectionDelay:2000,autoConnect:true});
   socket.on('new_data',d=>{ if(serverConnected){lastTs=Date.now();onData(d);} });
@@ -699,30 +732,68 @@ function connect(){
     lastTs=Date.now();
     applyFleetSnapshot(payload.devices||[]);
   });
-  socket.on('connect',   ()=>updateConnBtn(true));
-  socket.on('disconnect',()=>updateConnBtn(false));
+  socket.on('connect',   ()=>{updateConnBtn(true);updateSimulationState();});
+  socket.on('disconnect',()=>{if(simTimer)_simStop();updateConnBtn(false);updateSimulationState();});
+  socket.on('server_connection_status',()=>updateSimulationState());
   socket.on('esp32_status',d=>updateEspStatus(d));
+  socket.on('weather_mode',d=>updateWeatherButton(d));
   socket.on('worker_changed',ev=>{
     const id=ev?.device_id||ev?.worker?.device_id;
     const inactive=ev?.action==='deleted'||ev?.worker?.status==='inactive';
     if(id&&inactive){delete fleet[id];removeMarker(id);if(selectedDevice===id)selectedDevice=null;renderFleet();renderFleetOverview();if(Object.keys(fleet).length===0)goStandby();}
     if(document.body.dataset.page==='workers')loadWorkers();
   });
-  // Synchronisation arret simulation si un autre onglet/client arrete la sim
+  // Nettoyage distant seulement quand aucune simulation locale n'est en cours.
   socket.on('sim_cleared',()=>{
-    if(simTimer){clearInterval(simTimer);simTimer=null;}
-    simPhase=0;
+    if(simTimer)return;
     SIM_ROSTER.forEach(w=>{delete fleet[w.device_id];removeMarker(w.device_id);});
     if(selectedDevice&&selectedDevice.startsWith('SIM'))selectedDevice=null;
     renderFleet();if(Object.keys(fleet).length===0)goStandby();
-    const b=document.getElementById('bsim');b.classList.remove('on');b.textContent='Simuler';
+    silenceAlarm();
+    updateSimulationState();
   });
 }
 function updateConnBtn(connected){
   const b=document.getElementById('bconn'); if(!b)return;
-  if(connected && serverConnected){b.textContent='Connecte';b.style.color='var(--ok)';b.style.borderColor='#15a34a55';}
-  else{b.textContent='Deconnecte';b.style.color='var(--bad)';b.style.borderColor='#dc262655';}
+  if(connected && serverConnected){b.textContent='Connecté';b.style.color='var(--ok)';b.style.borderColor='#15a34a55';}
+  else{b.textContent='Déconnecté';b.style.color='var(--bad)';b.style.borderColor='#dc262655';}
+  updateSimulationState();
 }
+function isServerReadyForSimulation(){return !!(serverConnected&&socket&&socket.connected);}
+function updateSimulationState(){
+  const b=document.getElementById('bsim');
+  const stop=document.getElementById('bstop-sim');
+  const sit=document.getElementById('bstop-situation');
+  const scen=document.getElementById('scen');
+  if(!b)return;
+  const ready=isServerReadyForSimulation();
+  if(simTimer){
+    b.disabled=true;
+    b.classList.add('on');
+    b.title='Simulation en cours - arret manuel uniquement';
+    if(stop)stop.disabled=false;
+    if(sit){sit.disabled=false;sit.textContent=simEmbeddedStopped?'Situation ESP32 arretee':'Stop situation ESP32';}
+    if(scen)scen.disabled=true;
+    updateSimCountdown();
+  }else if(!ready){
+    b.disabled=true;
+    b.classList.remove('on');
+    b.textContent='Serveur deconnecte';
+    b.title='Connecter le serveur avant de lancer la simulation';
+    if(stop)stop.disabled=true;
+    if(sit){sit.disabled=true;sit.textContent='Stop situation ESP32';}
+    if(scen)scen.disabled=true;
+  }else{
+    b.disabled=false;
+    b.classList.remove('on');
+    b.textContent='Simuler';
+    b.title='Lancer la simulation';
+    if(stop)stop.disabled=true;
+    if(sit){sit.disabled=true;sit.textContent='Stop situation ESP32';}
+    if(scen)scen.disabled=false;
+  }
+}
+
 function toggleServer(){
   serverConnected=!serverConnected;
   if(serverConnected){
@@ -730,11 +801,58 @@ function toggleServer(){
     if(socket){ socket.connect(); } else { connect(); }
     updateConnBtn(true);
   } else {
-    // Déconnexion : ferme le flux, dashboard en veille
+    // Deconnexion : arrete la simulation, ferme le flux, dashboard en veille
+    if(simTimer)_simStop();
     if(socket){ socket.disconnect(); }
     updateConnBtn(false);
     goStandby();
   }
+}
+
+
+
+/* SOURCE TEMPERATURE / HUMIDITE */
+function weatherLabel(mode){return mode==="open_meteo"?"Open-Meteo":"DHT22";}
+function updateWeatherButton(payload){
+  if(payload){weatherMode=payload.source||payload.mode||weatherMode;weatherCache=payload.weather||weatherCache;}
+  const b=document.getElementById("bweather"); if(!b)return;
+  const on=weatherMode==="open_meteo";
+  b.classList.toggle("weather-on",on);
+  b.textContent=on?"Météo: Open-Meteo":"Météo: DHT22";
+  const w=weatherCache||{};
+  if(on&&w.temperature!=null&&w.humidity!=null)b.title=`Open-Meteo actif: ${(+w.temperature).toFixed(1)} C, ${Math.round(+w.humidity)}% HR`;
+  else b.title=on?"Open-Meteo actif - attente de donnees":"DHT22 actif pour temperature et humidite";
+  updateEnvSourceLabels({environment_source:weatherMode,temperature_source:weatherLabel(weatherMode),humidity_source:weatherLabel(weatherMode),weather:w});
+}
+async function refreshWeatherMode(force=false){
+  try{
+    const r=await fetch("/api/weather"+(force?"?force=1":""));
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    updateWeatherButton(await r.json());
+  }catch(e){const b=document.getElementById("bweather");if(b){b.textContent="Météo: erreur";b.style.borderColor="var(--bad)";}}
+}
+async function toggleWeatherMode(){
+  const b=document.getElementById("bweather"); if(b){b.disabled=true;b.textContent="Météo...";}
+  const current=fleet[selectedDevice]?.d||{};
+  const next=weatherMode==="open_meteo"?"dht22":"open_meteo";
+  const payload={source:next,latitude:current.latitude||-10.7181,longitude:current.longitude||25.4728};
+  try{
+    const r=await fetch("/api/weather/mode",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+    const data=await r.json().catch(()=>({}));
+    if(!r.ok)throw new Error(data.message||"Mode météo impossible");
+    updateWeatherButton(data);
+  }catch(e){alert("Activation Open-Meteo impossible: "+e.message);}
+  finally{if(b)b.disabled=false;}
+}
+function updateEnvSourceLabels(d){
+  const src=d?.environment_source||weatherMode||"dht22";
+  let label=src==="open_meteo"?"Open-Meteo":"DHT22";
+  if(src==="open_meteo_fallback")label="DHT22 fallback";
+  const w=d?.weather||weatherCache||{};
+  const extra=(src==="open_meteo"&&w.fetched_at)?" � "+new Date(w.fetched_at).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"}):"";
+  const ts=document.getElementById("temp-src"),hs=document.getElementById("hum-src");
+  if(ts)ts.textContent=(d?.temperature_source||label)+extra;
+  if(hs)hs.textContent=(d?.humidity_source||label)+extra;
 }
 
 /* SOURCE / VEILLE */
@@ -751,38 +869,42 @@ function goStandby(){
   document.getElementById('ring').style.cssText='border-color:var(--ok);color:var(--ok)';
   document.getElementById('rf-conf').textContent='100.0%';[0,1,2].forEach(i=>{document.getElementById('p'+i).style.width=(i===0?'100%':'0');document.getElementById('pp'+i).textContent=(i===0?'100.0%':'0.0%');});
   document.getElementById('lstm-v').textContent='0.00';document.getElementById('lst').className='lst idle';document.getElementById('lst').textContent='Situation normale — aucun gaz détecté';
+  updateEnvSourceLabels({environment_source:weatherMode});
   if(helmet3d) helmet3d.setStandby(true);
   const fo=document.getElementById('fleet-overview');
   if(fo)fo.innerHTML='<div class="fo-empty">Tableau en veille : niveau 0, sécurité normale</div>';
-  gasAlarm(false);
+  refreshEvac();
 }
 
 /* ===== FLOTTE MULTI-CASQUES ===== */
 const fleet={};                 // device_id -> {d, ts}
 let selectedDevice=null;
 const DEV_TIMEOUT=30000;        // 30 s sans donnees => hors ligne
+const LIVE_STALE_MS=45000;      // Evite une veille prematuree entre deux paquets ESP32
 
 function cFusion(d){
   return +(d?.c_fusion_ppm ?? d?.h2s_fusion_ppm ?? d?.h2s_mesure ?? d?.h2s_ppm ?? 0);
 }
 
+function isSimDevice(id){return String(id||'').startsWith('SIM');}
 function onData(d){
   if(!d||!d.device_id)return;
-  if(d.device_id.startsWith('SIM')&&!simTimer)return;
+  if(isSimDevice(d.device_id)&&!simTimer)return;
   count++;
   fleet[d.device_id]={d,ts:Date.now()};
-  const isSim=d.device_id.startsWith('SIM');
+  const isSim=isSimDevice(d.device_id);
+  const isReal=!isSim;
   const src=isSim?'Simulation':(manualFlag?'Saisie manuelle':'ESP32');
   setSource(src);manualFlag=false;
   updateMarker(d);
-  if(!selectedDevice||!fleet[selectedDevice])selectedDevice=d.device_id;
+  if(isReal&&(!selectedDevice||isSimDevice(selectedDevice)||!fleet[selectedDevice]))selectedDevice=d.device_id;
+  else if(!selectedDevice||!fleet[selectedDevice])selectedDevice=d.device_id;
   renderFleet();
   renderFleetOverview();
   recomputeAlarm();
-  if(d.device_id===selectedDevice)renderDetail(d);
+  if(fleet[selectedDevice])renderDetail(fleet[selectedDevice].d);
   syncFleetVisuals();
 }
-
 /* Mise a jour atomique de toute la flotte (simulation batch) */
 function applyFleetSnapshot(devices){
   if(!devices||!devices.length)return;
@@ -847,6 +969,7 @@ function renderFleetOverview(){
     card.className='fo-card'+(id===selectedDevice?' sel':'')+(on||waiting?'':' off');
     card.onclick=()=>{if(fleet[id])selectWorker(id);};
     const scen=d.sim_scenario?` · ${d.sim_scenario}`:'';
+    const led=d.led_state?.label||(`LED ${c.l}`);
     card.innerHTML=`
       <div class="fo-top">
         <span class="fo-dot" style="background:${waiting?'var(--accent)':on?c.c:'var(--tx3)'}"></span>
@@ -858,6 +981,7 @@ function renderFleetOverview(){
         <span>Temp ${on?(d.temperature||0).toFixed(0):'—'}°C</span>
         <span>Dose ${on?(d.dose_accumulee||0).toFixed(0):'—'}</span>
         <span>${on&&d.prediction_ready?(d.prediction_h2s||0).toFixed(1)+' ppm prév':'—'}</span>
+        <span>${on?led:'-'}</span>
       </div>`;
     grid.appendChild(card);
   });
@@ -910,11 +1034,20 @@ function recomputeAlarm(){
   Object.values(fleet).forEach(f=>{
     if((now-f.ts)<DEV_TIMEOUT && (f.d.risk_class||0)>=2) danger=danger||f.d;});
   const gb=document.getElementById('gas-banner');
-  if(danger && !gasSilenced){gb.classList.add('show');
+  if(danger){
+    gb.classList.add('show');
     document.getElementById('gas-msg').textContent=`Situation dangereuse - ${danger.worker_name||danger.device_id} - C_fusion ${cFusion(danger).toFixed(1)} ppm - Evacuation`;
-    gasAlarm(true);}
-  else if(!danger){gb.classList.remove('show');gasAlarm(false);}
+    gasAlarm(true);
+  }else if(alarmLatched&&!gasSilenced){
+    gb.classList.add('show');
+    document.getElementById('gas-msg').textContent='Alarme active - acquittement manuel requis';
+    refreshEvac();
+  }else if(!alarmLatched){
+    gb.classList.remove('show');
+    refreshEvac();
+  }
 }
+
 
 /* Nettoyage : retire les casques hors ligne de la carte + bascule en veille si vide */
 function cleanFleet(){
@@ -934,7 +1067,11 @@ function renderDetail(d){
   document.getElementById('w-name').textContent=d.worker_name||'—';
   document.getElementById('w-zone').textContent=d.zone||'—';
   document.getElementById('w-id').textContent=d.device_id||'—';
-  document.getElementById('w-sens').textContent=`${hm.toFixed(1)} ppm`;
+  document.getElementById('w-sens').textContent=`MQ-136 - ${hm.toFixed(1)} ppm`;
+  const mq=d.mq136_behavior||{};
+  const mqLed=(mq.led_state&&mq.led_state.label)||((d.led_state&&d.led_state.label)||c.l);
+  const mqEl=document.getElementById('w-mq');
+  if(mqEl){mqEl.textContent=`${mq.risk_label||c.l} - ${mqLed}`;mqEl.style.color=c.c;}
   document.getElementById('w-rssi').textContent=d.wifi_rssi?d.wifi_rssi+' dBm':'—';
   document.getElementById('w-cnt').textContent=count;
   const wp=document.getElementById('w-pill');wp.className='pill on';wp.innerHTML='<span class="led"></span> En ligne';
@@ -949,6 +1086,7 @@ function renderDetail(d){
   gset('pred',hp,'#7c4dd6',30);
   document.getElementById('v-temp').textContent=(d.temperature||0).toFixed(1);document.getElementById('f-temp').style.width=Math.min((d.temperature-20)/45*100,100)+'%';
   document.getElementById('v-hum').textContent=(d.humidity||0).toFixed(0);document.getElementById('f-hum').style.width=Math.min(d.humidity,100)+'%';
+  updateEnvSourceLabels(d);
   const dose=d.dose_accumulee||0;document.getElementById('v-dose').textContent=dose.toFixed(1);document.getElementById('f-dose').style.width=Math.min(dose/500*100,100)+'%';
   document.getElementById('r-dose').textContent='exposition : '+(d.exposure_level||'—');
   const ring=document.getElementById('ring'),tag=document.getElementById('tag');
@@ -1004,23 +1142,43 @@ function sendManual(){
 }
 function r(g){return document.getElementById('r-'+g).value;}
 
-/* REMPLIR BUFFER LSTM (envoie 60 mesures classe MODERE) */
-function fillBuffer(){
-  aud(); let i=0;
-  const go=()=>{
-    fetch('/api/preset?class=1').then(x=>x.json()).then(p=>{
-      manualFlag=true;
-      const payload=Object.assign({},p,{h2s_ppm:p.h2s_ppm??p.sensor1,device_id:'CASQUE_001',worker_name:'Technicien DANNY',
-        zone:'Mine Kamoto - KCC Kolwezi',wifi_rssi:-62,gps_valid:true,
-        latitude:-10.7181,longitude:25.4728,altitude:1440,speed_kmh:0.3,satellites:9,hdop:1.1});
-      return fetch('/api/sensor_data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-    }).then(()=>{ if(++i<60) setTimeout(go,250); });
-  };
-  go();
+/* REMPLIR BUFFER LSTM - demo fiable en 10 mesures cote serveur */
+async function fillBuffer(){
+  aud();
+  selectedDevice='CASQUE_001';
+  manualFlag=true;
+  const btn=Array.from(document.querySelectorAll('button')).find(b=>b.getAttribute('onclick')==='fillBuffer()');
+  const oldText=btn?btn.textContent:'Remplir le buffer (demo)';
+  const lst=document.getElementById('lst');
+  try{
+    if(btn){btn.disabled=true;btn.textContent='Buffer 0 / 10';}
+    if(lst){lst.className='lst wait';lst.textContent='Remplissage du buffer 0/10...';}
+    const res=await fetch('/api/demo/fill_buffer',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        device_id:'CASQUE_001',
+        worker_name:'Technicien DANNY',
+        zone:'Mine Kamoto - KCC Kolwezi',
+        demo_window:10
+      })
+    });
+    const data=await res.json().catch(()=>({}));
+    if(!res.ok||data.status==='error')throw new Error(data.error||data.message||('HTTP '+res.status));
+    const finalData=data.data||data;
+    if(finalData&&finalData.device_id){manualFlag=true;onData(finalData);}
+    if(btn)btn.textContent=data.prediction_ready?'Prediction active':'Buffer 10 / 10';
+    if(lst&&!data.prediction_ready){lst.className='lst wait';lst.textContent='Buffer 10/10, prediction non recue';}
+    setTimeout(()=>{if(btn){btn.textContent=oldText;btn.disabled=false;}},1800);
+  }catch(e){
+    console.warn('Remplir buffer:',e);
+    if(lst){lst.className='lst wait';lst.textContent='Erreur buffer: '+e.message;}
+    if(btn){btn.textContent='Erreur buffer';setTimeout(()=>{btn.textContent=oldText;btn.disabled=false;},2200);}
+  }
 }
-
 /* SIMULATION MULTI-CASQUES : plusieurs travailleurs simultanes */
-let simTimer=null, simPhase=0, _simBusy=false, _simErrors=0;
+let simTimer=null, simStopTimer=null, simStartedAt=0, simPhase=0, _simBusy=false, _simErrors=0, simEmbeddedStopped=false, simRunId=0;
+// La simulation reste active jusqu'au clic sur 'Arrêter simulation'.
 const SIM_ROSTER=[
   {device_id:'SIM_001',worker_name:'Technicien DANNY',  zone:'Galerie Nord — niveau -120 m'},
   {device_id:'SIM_002',worker_name:'Foreur MUKENDI',    zone:'Galerie Est — niveau -90 m'},
@@ -1030,9 +1188,29 @@ const SIM_ROSTER=[
 // Scenarios geres cote serveur via /api/simulate_fleet
 
 /* Arret propre : retire les casques SIM immediatement de la flotte et de la carte */
-function _simStop(){
+function updateSimCountdown(){
+  const b=document.getElementById('bsim');
+  if(!b||!simTimer)return;
+  const elapsed=Math.max(0,Math.floor((Date.now()-simStartedAt)/1000));
+  b.textContent='Simulation active '+elapsed+'s';
+}
+async function stopEmbeddedSituation(){
+  if(!simTimer)return;
+  simEmbeddedStopped=true;
+  updateSimulationState();
+  await stopEsp32Buzzer('dashboard_simulation');
+}
+async function stopSimManual(){
+  if(simTimer)await _simStop('manual');
+}
+async function _simStop(reason='manual'){
+  const stopBuzzerNow=stopEsp32Buzzer('stop_simulation');
+  simRunId++;
   if(simTimer){clearInterval(simTimer);simTimer=null;}
+  if(simStopTimer){clearTimeout(simStopTimer);simStopTimer=null;}
+  simStartedAt=0;
   simPhase=0;
+  simEmbeddedStopped=false;
   _simBusy=false;
   _simErrors=0;
   SIM_ROSTER.forEach(w=>{delete fleet[w.device_id];removeMarker(w.device_id);});
@@ -1040,58 +1218,90 @@ function _simStop(){
   renderFleet();
   renderFleetOverview();
   if(Object.keys(fleet).length===0)goStandby();
-  fetch('/api/sim_clear',{method:'POST'}).catch(()=>{});
-  const b=document.getElementById('bsim');
-  b.classList.remove('on');b.textContent='Simuler';
+    const b=document.getElementById('bsim');
+  if(b){b.classList.remove('on');b.textContent='Simuler';}
+  const stop=document.getElementById('bstop-sim');
+  if(stop)stop.disabled=true;
+  const sit=document.getElementById('bstop-situation');
+  if(sit){sit.disabled=true;sit.textContent='Stop situation ESP32';}
   recomputeAlarm();
+  silenceAlarm();
+  updateSimulationState();
+  try{
+    await fetch('/api/simulation/stop_all',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason})});
+  }catch(e){
+    console.warn('Arret simulation:',e);
+    fetch('/api/sim_clear',{method:'POST'}).catch(()=>{});
+  }
+  await stopBuzzerNow;
   if(helmet3d&&!document.querySelector('#h3d-views .mtab[data-v="fleet"]')?.classList.contains('on'))
     helmet3d.setStandby(true);
 }
 
+
 async function simTick(){
   if(_simBusy||!simTimer)return;
+  const runId=simRunId;
+  updateSimCountdown();
+  if(!isServerReadyForSimulation()){
+    _simStop();
+    alert('Simulation arretee : le serveur est deconnecte.');
+    return;
+  }
   _simBusy=true;
   const b=document.getElementById('bsim');
   const scen=document.getElementById('scen').value;
   try{
     const res=await fetch('/api/simulate_fleet',{
       method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({scenario:scen,phase:simPhase,roster:SIM_ROSTER}),
+      headers:{'Content-Type':'application/json','X-Dashboard-Connected':'1'},
+      body:JSON.stringify({scenario:scen,phase:simPhase,roster:SIM_ROSTER,server_connected:true,embedded_stop:simEmbeddedStopped}),
     });
     const data=await res.json().catch(()=>({}));
+    if(!simTimer||runId!==simRunId)return;
     if(!res.ok||data.status==='error'||!data.devices?.length)
       throw new Error(data.message||('HTTP '+res.status));
     applyFleetSnapshot(data.devices);
     _simErrors=0;
     simPhase++;
-    if(b&&simTimer)b.textContent='Arrêter';
+    if(b&&simTimer)updateSimCountdown();
   }catch(e){
     _simErrors++;
     console.warn('Simulation flotte:',e);
     if(b&&simTimer)b.textContent=_simErrors>=3?'Erreur sim':'Réessai…';
-    if(_simErrors>=5){_simStop();if(b){b.textContent='Simuler';alert('Simulation interrompue : '+e.message);}}
+    if(_simErrors>=5&&b&&simTimer)b.textContent='Reconnexion simulation...';
   }finally{
     _simBusy=false;
   }
 }
 
 function toggleSim(){
-  if(simTimer){_simStop();return;}
+  if(simTimer)return;
+  if(!isServerReadyForSimulation()){
+    updateSimulationState();
+    alert('Connecte d abord le serveur avant de lancer la simulation.');
+    return;
+  }
   aud();
   if(!helmet3d)initHelmet3D();
+  simRunId++;
+  simStartedAt=Date.now();
   simPhase=0;
   _simErrors=0;
+  simEmbeddedStopped=false;
   selectedDevice=SIM_ROSTER[0].device_id;
   const b=document.getElementById('bsim');
-  b.classList.add('on');b.textContent='Démarrage…';
+  b.classList.add('on');b.textContent='Demarrage...';
   setHelmetView('fleet');
   lastTs=Date.now();
   setSource('Simulation');
   renderFleetOverview();
-  simTimer=setInterval(simTick,2000);
+  simTimer=setInterval(simTick,1000);
+  simStopTimer=null;
+  updateSimulationState();
   simTick();
 }
+
 
 
 /* EXPORT CSV (telechargement fiable via lien temporaire) */
@@ -1115,7 +1325,7 @@ function espVisualState(d){
   if(d&&d.online&&d.desired_enabled)return {color:'var(--ok)',border:'#15a34a55',text:'ESP32 connecte',led:'var(--ok)'};
   if(d&&d.online&&!d.desired_enabled)return {color:'var(--warn)',border:'#ca8a0455',text:'ESP32 connecte - transmission suspendue',led:'var(--warn)'};
   if(d&&!d.desired_enabled)return {color:'var(--bad)',border:'#dc262655',text:'ESP32 deconnecte par dashboard',led:'var(--bad)'};
-  return {color:'var(--fire)',border:'#ea580c66',text:'ESP32 non detecte',led:'var(--fire)'};
+  return {color:'var(--fire)',border:'#ea580c66',text:'ESP32 non détecté',led:'var(--fire)'};
 }
 function updateEspStatus(d){
   if(!d)return;
@@ -1143,11 +1353,12 @@ async function refEsp(){
     const d=await rs.json();
     const i=await ri.json().catch(()=>({}));
     const merged={...d,server_ip:d.server_ip||i.ip,port:d.port||i.port,api_url:d.api_url||i.api_url,mdns:i.mdns||'gazmonitor.local'};
+    serverIpForCfg=merged.server_ip||serverIpForCfg;
     document.getElementById('srv-url').textContent=`http://${merged.server_ip}:${merged.port}`;
     document.getElementById('srv-mdns').textContent=merged.mdns;
     updateEspStatus(merged);
     cfg(merged.port);
-  }catch(e){updateEspStatus({online:false,desired_enabled:true,label:'ESP32 non detecte'});}
+  }catch(e){updateEspStatus({online:false,desired_enabled:true,label:'ESP32 non détecté'});}
 }
 async function setEspControl(enabled){
   try{
@@ -1157,11 +1368,12 @@ async function setEspControl(enabled){
     setTimeout(refEsp,700);
   }catch(e){alert('Commande ESP32 impossible: serveur inaccessible');}
 }
-function cfg(port){const ss=document.getElementById('ws').value||'VOTRE_WIFI',pp=document.getElementById('wp').value||'MOT_DE_PASSE';
-  document.getElementById('esp-cfg').textContent=`const char* WIFI_SSID = "${ss}";\nconst char* WIFI_PASSWORD = "${pp}";\nconst char* SERVER_IP = "10.67.107.74";\nconst int SERVER_PORT = ${port||8080};\nconst char* SENSOR_PATH = "/api/sensor_data";`;}
+function cfg(port){const ss=document.getElementById('ws').value||'VOTRE_WIFI',pp=document.getElementById('wp').value||'MOT_DE_PASSE',ip=serverIpForCfg||'172.21.69.74';
+  document.getElementById('esp-cfg').textContent=`const char* WIFI_SSID = "${ss}";\nconst char* WIFI_PASSWORD = "${pp}";\nconst char* SERVER_IP = "${ip}";\nconst int SERVER_PORT = ${port||8080};\nconst char* SENSOR_PATH = "/api/sensor_data";`;}
 document.getElementById('ws').addEventListener('input',()=>cfg());document.getElementById('wp').addEventListener('input',()=>cfg());
 function copyCfg(){navigator.clipboard.writeText(document.getElementById('esp-cfg').textContent);event.target.textContent='Copie';setTimeout(()=>event.target.textContent='Copier la configuration',1800);}
 setInterval(refEsp,3000);
+setTimeout(updateSimulationState,300);
 
 
 /* NAVIGATION INTERNE */
@@ -1238,11 +1450,14 @@ async function deleteWorker(device){
 setInterval(()=>document.getElementById('clock').textContent=new Date().toLocaleString('fr-FR'),1000);
 setInterval(()=>{
   if(simTimer)return;
-  if(liveSource&&Date.now()-lastTs>12000)goStandby();
+  if(liveSource&&Date.now()-lastTs>LIVE_STALE_MS)goStandby();
 },2000);
 
-connect();refEsp();pv();goStandby();showPage('surveillance');
+connect();refEsp();refreshWeatherMode();pv();goStandby();showPage('surveillance');
 </script>
 </body>
 </html>
+
+
+
 
